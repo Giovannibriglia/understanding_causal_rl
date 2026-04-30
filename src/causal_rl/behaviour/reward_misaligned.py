@@ -9,6 +9,7 @@ from causal_rl.behaviour.base import BiasedExplorer
 
 class RewardMisalignedExplorer(BiasedExplorer):
     family = "reward_misaligned"
+    depends_on_u = True
 
     def __init__(
         self,

@@ -49,13 +49,13 @@ def test_tabular_sepsis_cell1_gap_converges_to_zero() -> None:
     ), f"Gap too large for unconfounded cell 1: {metrics_large['delta_tv']:.4f}"
 
 
-def test_tabular_sepsis_cell7_gap_positive_with_confounding() -> None:
-    """Cell 7: alpha_conf=2.0.
+def test_tabular_sepsis_cell4_gap_positive_with_confounding() -> None:
+    """Cell 4 (pomdp_unknown): alpha_conf=2.0.
 
     Δ̂_TV should stabilise at a positive value as n_samples grows, reflecting
     the selection bias introduced by the confounding behaviour policy.
     """
-    env = TabularSepsisEnv(cell=7, n_envs=128, alpha_conf=2.0, device="cpu")
+    env = TabularSepsisEnv(cell=4, n_envs=128, alpha_conf=2.0, device="cpu")
     env.reset(seed=0)
     action = torch.randint(0, 8, (128, 1))
 
@@ -74,9 +74,9 @@ def test_tabular_sepsis_cell7_gap_positive_with_confounding() -> None:
     ), f"Gap {metrics['delta_tv']:.4f} exceeds Λ-bound {bound:.4f}"
 
 
-def test_tabular_sepsis_cell7_gap_bounded() -> None:
-    """Legacy bound check: gap for cell 7 does not exceed the Λ-sensitivity bound."""
-    env = TabularSepsisEnv(cell=7, n_envs=128, alpha_conf=2.0, device="cpu")
+def test_tabular_sepsis_cell4_gap_bounded() -> None:
+    """Legacy bound check: gap for cell 4 does not exceed the Λ-sensitivity bound."""
+    env = TabularSepsisEnv(cell=4, n_envs=128, alpha_conf=2.0, device="cpu")
     env.reset(seed=0)
     action = torch.randint(0, 8, (128, 1))
     metrics = compute_gap_metrics(
@@ -89,7 +89,7 @@ def test_tabular_sepsis_cell7_gap_bounded() -> None:
 
 def test_tabular_sepsis_ci_returned() -> None:
     """Bootstrap CI should be returned and be a valid interval."""
-    env = TabularSepsisEnv(cell=7, n_envs=16, alpha_conf=2.0, device="cpu")
+    env = TabularSepsisEnv(cell=4, n_envs=16, alpha_conf=2.0, device="cpu")
     env.reset(seed=42)
     action = torch.randint(0, 8, (16, 1))
     metrics = compute_gap_metrics(

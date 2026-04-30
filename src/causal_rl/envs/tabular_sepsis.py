@@ -126,8 +126,7 @@ class TabularSepsisEnv(CausalEnv):
         info: dict[str, Tensor] = {
             "latent_Z": (self._latent_state // OBS_STATES).float().unsqueeze(-1),
         }
-        if self.config.expose_u:
-            info["latent_U"] = self._latent_u.unsqueeze(-1)
+        info["latent_U"] = self._latent_u.unsqueeze(-1)
         return info
 
     def step(self, action: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, dict[str, Tensor]]:

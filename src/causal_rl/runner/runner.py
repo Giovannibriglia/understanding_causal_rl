@@ -12,6 +12,7 @@ from torch import nn
 
 from causal_rl.algos.registry import ALGOS
 from causal_rl.algos.registry import make as make_algo
+from causal_rl.behaviour.registry import BEHAVIOURS
 from causal_rl.behaviour.registry import make as make_behaviour
 from causal_rl.envs.base import CausalEnv
 from causal_rl.envs.cell_config import CELL_CONFIGS
@@ -47,6 +48,7 @@ class RunnerConfig:
     batch_size: int = 64
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
+    alpha_conf: float = 0.0
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
 
@@ -64,24 +66,28 @@ class BenchmarkRunner:
 
         self.env = self._make_env_instance()
         self.env_spec = ENVS[config.env_name]
-        self.id_status = get_id_status(config.env_name, config.cell)
+        beh_depends_on_u = BEHAVIOURS[config.behaviour].depends_on_u
+        self.id_status = get_id_status(
+            config.env_name,
+            config.cell,
+            alpha_conf=config.alpha_conf,
+            beh_depends_on_u=beh_depends_on_u,
+        )
 
         obs_dim = self.env.obs_shape[0]
         if self.env.is_discrete_action:
             n_actions = 8
             self.algo = make_algo(config.algorithm, obs_dim=obs_dim, n_actions=n_actions)
-            requires_latent = config.cell in {7, 8}
             self.behaviour_policy = make_behaviour(
-                config.behaviour, n_actions=n_actions, requires_latent=requires_latent
+                config.behaviour, n_actions=n_actions, requires_latent=beh_depends_on_u
             )
         else:
             act_dim = self.env.act_shape[0]
             self.algo = make_algo(config.algorithm, obs_dim=obs_dim, act_dim=act_dim)
-            requires_latent = config.cell in {7, 8}
             self.behaviour_policy = make_behaviour(
                 config.behaviour,
                 act_dim=act_dim,
-                requires_latent=requires_latent,
+                requires_latent=beh_depends_on_u,
             )
 
         self._move_algo_to_device()
@@ -113,12 +119,14 @@ class BenchmarkRunner:
                 self.config.env_name,
                 cell=self.config.cell,
                 n_envs=self.config.n_envs,
+                alpha_conf=self.config.alpha_conf,
                 device=str(self.device),
             )
         return make_env(
             self.config.env_name,
             cell=self.config.cell,
             n_envs=self.config.n_envs,
+            alpha_conf=self.config.alpha_conf,
             horizon=self.config.horizon,
             device=str(self.device),
         )
@@ -429,7 +437,7 @@ class BenchmarkRunner:
                 torch.cuda.set_rng_state_all(cuda_rng_state)
 
     def run(self) -> None:
-        if not self.cell_cfg.on_policy and ALGOS[self.config.algorithm].kind == "off_policy":
+        if ALGOS[self.config.algorithm].kind == "off_policy":
             self._run_offline()
             return
         self._run_online()
@@ -544,7 +552,7 @@ class BenchmarkRunner:
             behaviour_policy=self.behaviour_policy,
             n_transitions=self.config.offline_transitions,
             expose_pi_b=self.cell_cfg.pi_b_known,
-            expose_latent=self.cell_cfg.expose_u,
+            expose_latent=self.behaviour_policy.depends_on_u,
             seed=self.config.seed,
         )
         episode = 0

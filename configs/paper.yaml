@@ -1,8 +1,8 @@
 # Paper-scale experiment: realistic compute budget for publication figures.
 # Expected wall-clock: ~24h on a single A100 across the full factorial.
 # Tabular: 200k frames = 10 000 episodes of horizon 20 across 64 parallel envs.
-# Continuous: 500k frames = 10 000 episodes of horizon 50 across 64 parallel envs.
-cells: [1, 2, 3, 4, 5, 6, 7, 8]
+# Continuous: 200k frames = 4 000 episodes of horizon 50 across 64 parallel envs.
+cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
   - continuous-ward-v0
@@ -20,9 +20,7 @@ behaviours:
   - information
   - curiosity
 seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-total_frames:
-  tabular-sepsis-v0: 200000
-  continuous-ward-v0: 500000
+total_frames: 200000
 n_checkpoints_train: 100
 n_checkpoints_eval: 50
 env_horizons:

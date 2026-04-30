@@ -1,4 +1,4 @@
-"""Graphical identifiability oracle for the 8-cell factorial.
+"""Graphical identifiability oracle for the 4-cell factorial.
 
 Classifies the target query P(R | do(A), S) as one of:
   ``id``         – point-identifiable from the observational margin in this cell.
@@ -7,63 +7,97 @@ Classifies the target query P(R | do(A), S) as one of:
   ``non_id``     – non-identifiable: the query is not recoverable from the
                    observational distribution alone for any sample size.
 
-The classification is a hand-coded mapping for the eight cells used in the paper,
-verified against the standard identification criteria (Pearl's do-calculus / the
-ID algorithm):
+Rules are derived from graphical criteria (Pearl's do-calculus / the ID
+algorithm) and depend on three runtime inputs:
+  - ``cell``             – determines (expose_z, pi_b_known) from CELL_CONFIGS.
+  - ``alpha_conf``       – > 0 means U actively biases rewards.
+  - ``beh_depends_on_u`` – True when the behaviour policy conditions on U,
+                           creating a spurious A ↔ R path through U.
 
-  - A query is identifiable when the causal diagram has no unblocked backdoor
-    path from A to R through hidden variables, OR when such paths are blocked by
-    observed covariates.
-  - With known π_b and no hidden confounders on A→R, IPW identifies the query.
-  - With unknown π_b and a hidden confounder (U) creating a bidirected A↔R edge,
-    the query is not point-identifiable (partial or non-id depending on whether
-    observable covariates bound the effect).
+Truth table
+-----------
+C1 (expose_z=T, pi_b_known=T):   always id.
+  Z blocks every backdoor; IPW with known π_b identifies the query.
+
+C2 (expose_z=T, pi_b_known=F):
+  – beh_depends_on_u=F or alpha_conf=0 → id.   Z still blocks the backdoor.
+  – beh_depends_on_u=T and alpha_conf>0 → partial_id.
+    A bidirected A↔R edge appears (U drives both A and R); the causal effect
+    is not point-identified, but the Bareinboim natural bounds apply.
+
+C3 (expose_z=F, pi_b_known=T):   always partial_id.
+  Z is hidden; IPW over the marginal P(A|S) is biased by Z, but bounds via
+  marginalisation over Z are available.
+
+C4 (expose_z=F, pi_b_known=F):
+  – beh_depends_on_u=F or alpha_conf=0 → partial_id.   Missing Z still
+    leaves bounds, but no additional A↔R confounder.
+  – beh_depends_on_u=T and alpha_conf>0 → non_id.
+    Both Z is hidden AND there is an unmeasured A↔R confounder through U;
+    no observational distribution pins down the interventional one.
 """
 
 from __future__ import annotations
 
-# (env_name, cell) → id_status
-# env_name is a prefix match (both envs share the same structure).
-ID_STATUS_MAP: dict[tuple[str, int], str] = {
-    # On-policy cells (cells 1-2): no off-policy confounding; ID depends on Z.
-    ("tabular-sepsis-v0", 1): "id",  # Z observed, π_b = π_e → no gap
-    ("tabular-sepsis-v0", 2): "partial_id",  # Z hidden → partial bounds
-    ("tabular-sepsis-v0", 3): "id",  # Z observed, π_b known → IPW identifies
-    ("tabular-sepsis-v0", 4): "partial_id",  # Z hidden, π_b known → bounds, IPW biased
-    ("tabular-sepsis-v0", 5): "partial_id",  # Z observed, π_b unknown → selection bias
-    ("tabular-sepsis-v0", 6): "non_id",  # Z hidden, π_b unknown, U hidden → non-id
-    ("tabular-sepsis-v0", 7): "partial_id",  # U observed but bidirected A↔R from unknown π_b
-    ("tabular-sepsis-v0", 8): "non_id",  # Z hidden + U exposed does not recover Z-gap
-    ("continuous-ward-v0", 1): "id",
-    ("continuous-ward-v0", 2): "partial_id",
-    ("continuous-ward-v0", 3): "id",
-    ("continuous-ward-v0", 4): "partial_id",
-    ("continuous-ward-v0", 5): "partial_id",
-    ("continuous-ward-v0", 6): "non_id",
-    ("continuous-ward-v0", 7): "partial_id",
-    ("continuous-ward-v0", 8): "non_id",
-}
+from causal_rl.envs.cell_config import CELL_CONFIGS
 
 # Ordered values for numeric encoding in regressions.
-ID_STATUS_ORDER = {"id": 0, "partial_id": 1, "non_id": 2}
+ID_STATUS_ORDER: dict[str, int] = {"id": 0, "partial_id": 1, "non_id": 2}
 
 
-def get_id_status(env_name: str, cell: int) -> str:
-    """Return the identifiability status string for ``(env_name, cell)``.
+def get_id_status(
+    env_name: str,
+    cell: int,
+    alpha_conf: float = 0.0,
+    beh_depends_on_u: bool = False,
+) -> str:
+    """Return the identifiability status for a (cell, runtime-knobs) combination.
 
-    Falls back to ``"non_id"`` for unregistered combinations so that new
-    cells fail conservatively rather than silently.
+    Parameters
+    ----------
+    env_name:
+        Environment identifier (used only for forward-compatibility; the
+        rules are the same for both supported envs).
+    cell:
+        Cell number 1–4 as defined in ``CELL_CONFIGS``.
+    alpha_conf:
+        Confounding strength passed to the environment (``>0`` means U
+        actively distorts the observational reward distribution).
+    beh_depends_on_u:
+        ``True`` when the behaviour policy conditions on U, creating a
+        spurious A↔R correlation through the hidden confounder.
+
+    Returns
+    -------
+    ``"id"``, ``"partial_id"``, or ``"non_id"``.  Falls back to ``"non_id"``
+    for unregistered cell numbers (fail-safe rather than silent).
     """
-    key = (env_name, cell)
-    if key in ID_STATUS_MAP:
-        return ID_STATUS_MAP[key]
-    # Try prefix match (e.g. "tabular-sepsis-v0-modified" → "tabular-sepsis-v0")
-    for (ename, ecell), status in ID_STATUS_MAP.items():
-        if env_name.startswith(ename) and ecell == cell:
-            return status
-    return "non_id"
+    cfg = CELL_CONFIGS.get(cell)
+    if cfg is None:
+        return "non_id"
+
+    confounded = beh_depends_on_u and alpha_conf > 0.0
+
+    if cfg.expose_z and cfg.pi_b_known:  # C1
+        return "id"
+
+    if cfg.expose_z and not cfg.pi_b_known:  # C2
+        return "partial_id" if confounded else "id"
+
+    if not cfg.expose_z and cfg.pi_b_known:  # C3
+        return "partial_id"
+
+    # C4: expose_z=False, pi_b_known=False
+    return "non_id" if confounded else "partial_id"
 
 
-def get_id_status_ordinal(env_name: str, cell: int) -> int:
+def get_id_status_ordinal(
+    env_name: str,
+    cell: int,
+    alpha_conf: float = 0.0,
+    beh_depends_on_u: bool = False,
+) -> int:
     """Return an ordinal encoding: id=0, partial_id=1, non_id=2."""
-    return ID_STATUS_ORDER.get(get_id_status(env_name, cell), 2)
+    return ID_STATUS_ORDER.get(
+        get_id_status(env_name, cell, alpha_conf, beh_depends_on_u), 2
+    )

@@ -146,6 +146,16 @@ def main() -> None:
                         str(run_dir),
                     ]
                     cmd.extend(["--rollout-horizon", str(horizon), "--horizon", str(horizon)])
+                    cmd.extend(
+                        [
+                            "--offline-transitions",
+                            str(100 if args.quick else matrix.offline_transitions),
+                            "--offline-updates",
+                            str(50 if args.quick else matrix.offline_updates),
+                            "--alpha-conf",
+                            str(matrix.alpha_conf),
+                        ]
+                    )
                     if args.device is not None:
                         cmd.extend(["--device", args.device])
                     subprocess.run(cmd, check=True)

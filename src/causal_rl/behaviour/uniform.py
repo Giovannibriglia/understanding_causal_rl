@@ -10,6 +10,7 @@ from causal_rl.behaviour.base import BiasedExplorer
 class UniformExplorer(BiasedExplorer):
     family = "baseline"
     requires_latent = False
+    depends_on_u = False
 
     def __init__(
         self,

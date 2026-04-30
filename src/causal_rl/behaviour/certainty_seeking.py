@@ -9,6 +9,7 @@ from causal_rl.behaviour.base import BiasedExplorer
 
 class CertaintySeekingExplorer(BiasedExplorer):
     family = "information"
+    depends_on_u = False
 
     def __init__(
         self,
