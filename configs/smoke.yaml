@@ -1,0 +1,18 @@
+# Smoke tests for fast local iteration
+cells: [1, 2, 3]
+envs:
+  - tabular-sepsis-v0
+  - continuous-ward-v0
+algorithms:
+  - ppo
+  - ddpg
+behaviours:
+  - uniform
+  - reward_misaligned
+seeds: [0,1]
+total_frames: 200
+n_checkpoints_train: 5
+n_checkpoints_eval: 5
+env_horizons:
+  tabular-sepsis-v0: 20
+  continuous-ward-v0: 50

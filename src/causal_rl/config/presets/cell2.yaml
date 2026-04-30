@@ -1,0 +1,4 @@
+cell: 2
+steps: 50000
+eval_every: 1000
+n_envs: 128

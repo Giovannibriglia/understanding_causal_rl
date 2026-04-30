@@ -1,0 +1,21 @@
+# Behaviour-policy ablation (compare data collection families)
+cells: [6]
+envs:
+  - tabular-sepsis-v0
+  - continuous-ward-v0
+algorithms:
+  - dqn
+  - ddpg
+behaviours:
+  - uniform
+  - reward_aligned
+  - reward_misaligned
+  - information
+  - curiosity
+seeds: [0,1,2]
+total_frames: 2000
+n_checkpoints_train: 100
+n_checkpoints_eval: 20
+env_horizons:
+  tabular-sepsis-v0: 20
+  continuous-ward-v0: 50

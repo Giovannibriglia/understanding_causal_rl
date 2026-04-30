@@ -1,0 +1,14 @@
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/
+.venv/
+results/
+outputs/
+docs/_build/
