@@ -171,7 +171,7 @@ class TabularSepsisEnv(CausalEnv):
         # action a when the hidden U=1 (high-reward) state is active.
         # This is equivalent to P_obs(R=+1) = (w0*mu0 + w1*mu1)/(w0+w1)
         # where mu_u = mu_base ± delta and w_u ∝ exp(alpha_conf * mu_u).
-        delta = (0.05 * self.alpha_conf).clamp(max=0.45)
+        delta = torch.tensor(min(0.05 * self.alpha_conf, 0.45))
         mu_u0 = (mu_base - delta).clamp(0.01, 0.99)
         mu_u1 = (mu_base + delta).clamp(0.01, 0.99)
         w0 = torch.exp(-self.alpha_conf * delta * torch.ones_like(mu_base))

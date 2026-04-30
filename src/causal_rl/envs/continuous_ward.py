@@ -140,9 +140,10 @@ class ContinuousWardEnv(CausalEnv):
             reps_z = torch.rand(
                 (self.n_envs * n, self.z_dim), device=self.device, dtype=torch.float32
             )
-            reps_u = torch.randn(
-                (self.n_envs * n, self.u_dim), device=self.device, dtype=torch.float32
-            ) * 0.25
+            reps_u = (
+                torch.randn((self.n_envs * n, self.u_dim), device=self.device, dtype=torch.float32)
+                * 0.25
+            )
 
         drift = self._drift(reps_state, reps_action, reps_z, reps_u)
         noise = self.sigma * torch.randn_like(reps_state)
@@ -173,9 +174,10 @@ class ContinuousWardEnv(CausalEnv):
         reps_z = torch.rand(
             (self.n_envs * n_cand, self.z_dim), device=self.device, dtype=torch.float32
         )
-        reps_u = torch.randn(
-            (self.n_envs * n_cand, self.u_dim), device=self.device, dtype=torch.float32
-        ) * 0.25
+        reps_u = (
+            torch.randn((self.n_envs * n_cand, self.u_dim), device=self.device, dtype=torch.float32)
+            * 0.25
+        )
         drift = self._drift(reps_state, reps_action, reps_z, reps_u)
         noise = self.sigma * torch.randn_like(reps_state)
         next_state = (reps_state + self.dt * drift + noise).clamp(0.0, 1.0)

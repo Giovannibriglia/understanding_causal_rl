@@ -15,7 +15,7 @@ Node vocabulary (shared across envs):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -32,15 +32,17 @@ class CausalDiagram:
 
 def _base_directed() -> frozenset[tuple[str, str]]:
     """Edges shared by all cells."""
-    return frozenset({
-        ("S_t", "A_t"),
-        ("S_t", "R_t"),
-        ("A_t", "R_t"),
-        ("S_t", "S_tp1"),
-        ("A_t", "S_tp1"),
-        ("Z", "S_tp1"),
-        ("Z", "R_t"),
-    })
+    return frozenset(
+        {
+            ("S_t", "A_t"),
+            ("S_t", "R_t"),
+            ("A_t", "R_t"),
+            ("S_t", "S_tp1"),
+            ("A_t", "S_tp1"),
+            ("Z", "S_tp1"),
+            ("Z", "R_t"),
+        }
+    )
 
 
 def _make_diagram(

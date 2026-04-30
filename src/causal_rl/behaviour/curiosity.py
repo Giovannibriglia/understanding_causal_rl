@@ -45,7 +45,9 @@ class CuriosityExplorer(BiasedExplorer):
             score = 1.4 * novelty - 0.35
             base = torch.sigmoid(self.delta * score)
             if latent is not None:
-                base = torch.sigmoid(torch.logit(base.clamp(1e-4, 1.0 - 1e-4)) + 0.10 * latent[:, :1])
+                base = torch.sigmoid(
+                    torch.logit(base.clamp(1e-4, 1.0 - 1e-4)) + 0.10 * latent[:, :1]
+                )
             action = (base + 0.03 * torch.randn_like(base)).clamp(0.0, 1.0)
             with torch.no_grad():
                 batch_center = state_slice.detach().mean(dim=0).to(torch.float32).cpu()

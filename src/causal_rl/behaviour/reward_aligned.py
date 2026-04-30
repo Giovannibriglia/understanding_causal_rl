@@ -38,7 +38,9 @@ class RewardAlignedExplorer(BiasedExplorer):
             score = 0.85 * state_slice + 0.15 * state_context
             base = torch.sigmoid(self.beta * score)
             if latent is not None:
-                base = torch.sigmoid(torch.logit(base.clamp(1e-4, 1.0 - 1e-4)) + 0.10 * latent[:, :1])
+                base = torch.sigmoid(
+                    torch.logit(base.clamp(1e-4, 1.0 - 1e-4)) + 0.10 * latent[:, :1]
+                )
             action = (base + 0.03 * torch.randn_like(base)).clamp(0.0, 1.0)
             log_prob = torch.zeros((obs.shape[0],), device=obs.device)
             return action, log_prob

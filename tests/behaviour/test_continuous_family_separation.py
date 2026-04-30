@@ -27,4 +27,6 @@ def test_continuous_behaviour_families_are_explicitly_separated() -> None:
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             d = (actions[names[i]] - actions[names[j]]).abs().mean().item()
-            assert d > 0.08, f"continuous policies too similar: {names[i]} vs {names[j]} (MAD={d:.4f})"
+            assert (
+                d > 0.08
+            ), f"continuous policies too similar: {names[i]} vs {names[j]} (MAD={d:.4f})"

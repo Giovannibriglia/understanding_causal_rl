@@ -7,7 +7,7 @@ from torch import Tensor
 
 
 class BiasedExplorer(abc.ABC):
-    family: Literal["baseline", "reward_aligned", "information", "curiosity"]
+    family: Literal["baseline", "reward_aligned", "information", "curiosity", "reward_misaligned"]
     requires_latent: bool
 
     @abc.abstractmethod

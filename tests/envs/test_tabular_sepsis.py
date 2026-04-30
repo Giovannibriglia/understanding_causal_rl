@@ -21,10 +21,22 @@ def test_tabular_sepsis_cell1_gap_converges_to_zero() -> None:
     action = torch.randint(0, 8, (32, 1))
 
     metrics_small = compute_gap_metrics(
-        env_small, None, action, observed_reward=None, pi_b_logprob=None, n_samples=50, n_bootstrap=0
+        env_small,
+        None,
+        action,
+        observed_reward=None,
+        pi_b_logprob=None,
+        n_samples=50,
+        n_bootstrap=0,
     )
     metrics_large = compute_gap_metrics(
-        env_large, None, action, observed_reward=None, pi_b_logprob=None, n_samples=2000, n_bootstrap=0
+        env_large,
+        None,
+        action,
+        observed_reward=None,
+        pi_b_logprob=None,
+        n_samples=2000,
+        n_bootstrap=0,
     )
     # With no confounding, the gap should be small and should shrink with n.
     assert metrics_large["delta_tv"] <= metrics_small["delta_tv"] + 0.05, (
@@ -32,9 +44,9 @@ def test_tabular_sepsis_cell1_gap_converges_to_zero() -> None:
         f"large={metrics_large['delta_tv']:.4f}"
     )
     # With large n and no confounding, the gap should be near zero.
-    assert metrics_large["delta_tv"] < 0.1, (
-        f"Gap too large for unconfounded cell 1: {metrics_large['delta_tv']:.4f}"
-    )
+    assert (
+        metrics_large["delta_tv"] < 0.1
+    ), f"Gap too large for unconfounded cell 1: {metrics_large['delta_tv']:.4f}"
 
 
 def test_tabular_sepsis_cell7_gap_positive_with_confounding() -> None:
@@ -51,15 +63,15 @@ def test_tabular_sepsis_cell7_gap_positive_with_confounding() -> None:
         env, None, action, observed_reward=None, pi_b_logprob=None, n_samples=1000, n_bootstrap=0
     )
     # With alpha_conf=2.0 the gap should be measurably positive.
-    assert metrics["delta_tv"] > 0.01, (
-        f"Gap expected positive for confounded cell 7, got {metrics['delta_tv']:.4f}"
-    )
+    assert (
+        metrics["delta_tv"] > 0.01
+    ), f"Gap expected positive for confounded cell 7, got {metrics['delta_tv']:.4f}"
     # And bounded by the Λ-sensitivity bound: (λ-1)/(λ+1) where λ=exp(alpha_conf).
     lam = torch.exp(torch.tensor(2.0))
     bound = float(((lam - 1.0) / (lam + 1.0)).item())
-    assert metrics["delta_tv"] <= bound + 0.05, (
-        f"Gap {metrics['delta_tv']:.4f} exceeds Λ-bound {bound:.4f}"
-    )
+    assert (
+        metrics["delta_tv"] <= bound + 0.05
+    ), f"Gap {metrics['delta_tv']:.4f} exceeds Λ-bound {bound:.4f}"
 
 
 def test_tabular_sepsis_cell7_gap_bounded() -> None:

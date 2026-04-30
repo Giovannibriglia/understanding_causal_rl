@@ -46,7 +46,9 @@ class RewardMisalignedExplorer(BiasedExplorer):
             risky_push = 0.55 * self.bias_strength
             base = torch.sigmoid(self.beta * anti_score + risky_push)
             if latent is not None:
-                base = torch.sigmoid(torch.logit(base.clamp(1e-4, 1.0 - 1e-4)) + 0.10 * latent[:, :1])
+                base = torch.sigmoid(
+                    torch.logit(base.clamp(1e-4, 1.0 - 1e-4)) + 0.10 * latent[:, :1]
+                )
             action = (base + 0.03 * torch.randn_like(base)).clamp(0.0, 1.0)
             log_prob = torch.zeros((obs.shape[0],), device=obs.device)
             return action, log_prob

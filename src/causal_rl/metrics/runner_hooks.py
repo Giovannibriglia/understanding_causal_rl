@@ -7,10 +7,10 @@ from causal_rl.envs.base import CausalEnv
 from causal_rl.metrics.divergences import chi_squared, kl_divergence, sup_log_ratio, total_variation
 from causal_rl.metrics.mmd import mmd2
 
-
 # ---------------------------------------------------------------------------
 # Bootstrap helpers
 # ---------------------------------------------------------------------------
+
 
 def _bootstrap_tv_ci(
     obs_samples: Tensor,
@@ -74,6 +74,7 @@ def _bootstrap_mmd_ci(
 # KS distance between two empirical distributions (no parametric assumption)
 # ---------------------------------------------------------------------------
 
+
 def _empirical_ks(x: Tensor, y: Tensor) -> Tensor:
     """KS statistic between two sets of samples.
 
@@ -93,6 +94,7 @@ def _empirical_ks(x: Tensor, y: Tensor) -> Tensor:
 # ---------------------------------------------------------------------------
 # Main gap-metric function
 # ---------------------------------------------------------------------------
+
 
 def compute_gap_metrics(
     env: CausalEnv,
@@ -122,9 +124,10 @@ def compute_gap_metrics(
     del obs  # unused; env exposes state via internal attributes
 
     has_sampling = (
-        hasattr(env, "sample_observational") and hasattr(env, "sample_interventional")
-        and callable(getattr(env, "sample_observational"))
-        and callable(getattr(env, "sample_interventional"))
+        hasattr(env, "sample_observational")
+        and hasattr(env, "sample_interventional")
+        and callable(env.sample_observational)
+        and callable(env.sample_interventional)
     )
 
     # ------------------------------------------------------------------
@@ -132,8 +135,8 @@ def compute_gap_metrics(
     # ------------------------------------------------------------------
     if env.is_discrete_action:
         if has_sampling:
-            obs_samp = env.sample_observational(action, n_samples)   # (batch, n)
-            do_samp = env.sample_interventional(action, n_samples)    # (batch, n)
+            obs_samp = env.sample_observational(action, n_samples)  # (batch, n)
+            do_samp = env.sample_interventional(action, n_samples)  # (batch, n)
 
             n = obs_samp.shape[-1]
             # Laplace-smoothed Bernoulli probabilities
@@ -174,11 +177,9 @@ def compute_gap_metrics(
         if pi_b_logprob is not None and has_sampling:
             w = torch.exp(-pi_b_logprob).clamp(max=10.0)
             w_norm = w / (w.mean() + 1e-8)
-            p_obs_hat_ipw = (p_obs_hat * w_norm)
+            p_obs_hat_ipw = p_obs_hat * w_norm
             p_do_hat_ipw = p_do_hat
-            delta_tv_conditional = float(
-                (p_obs_hat_ipw - p_do_hat_ipw).abs().mean().item()
-            )
+            delta_tv_conditional = float((p_obs_hat_ipw - p_do_hat_ipw).abs().mean().item())
 
         return {
             "delta_tv": delta_tv,
@@ -195,8 +196,8 @@ def compute_gap_metrics(
     # Continuous path  (A.2: replace Gaussianised L1 with MMD² + KS)
     # ------------------------------------------------------------------
     if has_sampling:
-        obs_samp = env.sample_observational(action, n_samples)   # (batch, n)
-        do_samp = env.sample_interventional(action, n_samples)    # (batch, n)
+        obs_samp = env.sample_observational(action, n_samples)  # (batch, n)
+        do_samp = env.sample_interventional(action, n_samples)  # (batch, n)
     else:
         # Fallback: do_reward gives MC samples for interventional; use
         # observed_reward (single-sample) as a degenerate observational estimate.
@@ -212,9 +213,7 @@ def compute_gap_metrics(
     do_flat = do_samp.to(torch.float32)
 
     # MMD² with median-heuristic bandwidth (primary continuous metric)
-    delta_mmd2 = float(
-        mmd2(obs_flat.reshape(-1, 1), do_flat.reshape(-1, 1)).item()
-    )
+    delta_mmd2 = float(mmd2(obs_flat.reshape(-1, 1), do_flat.reshape(-1, 1)).item())
 
     # KS distance between pooled empirical CDFs
     delta_ks = float(_empirical_ks(obs_flat, do_flat).item())
@@ -225,13 +224,13 @@ def compute_gap_metrics(
     # For backward compatibility with callers that read delta_tv:
     # report KS as delta_tv (both are in [0,1] for bounded rewards).
     return {
-        "delta_tv": delta_ks,             # KS ∈ [0,1], replaces Gaussianised L1
+        "delta_tv": delta_ks,  # KS ∈ [0,1], replaces Gaussianised L1
         "delta_tv_ci_lo": ci_lo,
         "delta_tv_ci_hi": ci_hi,
-        "delta_kl": 0.0,                  # not meaningful without parametric assumption
+        "delta_kl": 0.0,  # not meaningful without parametric assumption
         "delta_chi2": 0.0,
         "delta_sup": 0.0,
-        "delta_mmd2": delta_mmd2,         # primary continuous metric
+        "delta_mmd2": delta_mmd2,  # primary continuous metric
         "delta_ks": delta_ks,
         "delta_tv_marginal": delta_mmd2,  # MMD² as marginal summary
         "delta_tv_conditional": delta_ks,

@@ -9,7 +9,9 @@ import numpy as np
 from causal_rl.plotting.style import apply_style, figure
 
 
-def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str | None = None) -> None:
+def make_headline_scatter(
+    results_dir: Path, output_dir: Path, env_prefix: str | None = None
+) -> None:
     """Plot final gap vs generalisation as mean points per (algorithm, behaviour).
 
     For each (algorithm, behaviour) compute the mean across runs/seeds of
@@ -30,14 +32,16 @@ def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str |
             if not rdr:
                 continue
             last_row = rdr[-1]
-            if env_prefix is not None and not str(last_row.get("env_name", "")).startswith(env_prefix):
+            if env_prefix is not None and not str(last_row.get("env_name", "")).startswith(
+                env_prefix
+            ):
                 continue
             rows.append(last_row)
 
-    from causal_rl.plotting.colors import get_style
-    from matplotlib.patches import Ellipse
     from matplotlib.lines import Line2D
-    import matplotlib.patches as mpatches
+    from matplotlib.patches import Ellipse
+
+    from causal_rl.plotting.colors import get_color, get_marker
 
     # Group by (algorithm, behaviour)
     groups: dict[tuple[str, str], list[tuple[float, float]]] = {}
@@ -76,10 +80,9 @@ def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str |
 
     # Precompute behaviour -> marker mapping (marker depends only on behaviour)
     beh_marker_map: dict[str, str] = {}
-    for (algo, beh), pts in groups.items():
+    for (algo, beh), _pts in groups.items():
         if beh not in beh_marker_map:
-            style = get_style(algo, beh)
-            beh_marker_map[beh] = style.get("marker") or "o"
+            beh_marker_map[beh] = get_marker(algo, beh) or "o"
 
     # Plot each group's seed points, ellipse and mean
     for (algo, beh), pts in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1])):
@@ -90,9 +93,8 @@ def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str |
         width = float(std_xy[0])
         height = float(std_xy[1])
 
-        style = get_style(algo, beh)
-        color = style.get("color")
-        marker = style.get("marker") if style.get("marker") is not None else "o"
+        color = get_color(algo, beh)
+        marker = get_marker(algo, beh) or "o"
 
         # faint individual seed points (behind ellipses)
         ax.scatter(pts_arr[:, 0], pts_arr[:, 1], color=color, alpha=0.25, s=24, zorder=0)
@@ -101,8 +103,16 @@ def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str |
 
         # draw anisotropic ellipse for dispersion
         if width > 0 or height > 0:
-            ell = Ellipse((mean_xy[0], mean_xy[1]), width=width, height=height,
-                          facecolor=color, edgecolor=None, alpha=0.3, linewidth=0, zorder=1)
+            ell = Ellipse(
+                (mean_xy[0], mean_xy[1]),
+                width=width,
+                height=height,
+                facecolor=color,
+                edgecolor=None,
+                alpha=0.3,
+                linewidth=0,
+                zorder=1,
+            )
             ax.add_patch(ell)
 
         # plot mean point on top
@@ -118,23 +128,43 @@ def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str |
     # Single legend: one entry per (algorithm, behaviour)
     combo_handles = []
     combo_labels = []
-    for (algo, beh) in sorted(groups.keys(), key=lambda x: (x[0] or "", x[1] or "")):
-        style = get_style(algo, beh)
-        color = style.get("color")
-        marker = style.get("marker") or "o"
+    for algo, beh in sorted(groups.keys(), key=lambda x: (x[0] or "", x[1] or "")):
+        color = get_color(algo, beh)
+        marker = get_marker(algo, beh) or "o"
         label = f"{algo}" + (f" ({beh})" if beh else "")
-        ln = Line2D([0], [0], color=color, marker=marker, linestyle="None", markersize=6, markeredgecolor="k")
+        ln = Line2D(
+            [0],
+            [0],
+            color=color,
+            marker=marker,
+            linestyle="None",
+            markersize=6,
+            markeredgecolor="k",
+        )
         combo_handles.append(ln)
         combo_labels.append(label)
     if combo_handles:
-        ax.legend(combo_handles, combo_labels, title="Algorithm (behaviour)", loc="best", frameon=False, fontsize=7)
+        ax.legend(
+            combo_handles,
+            combo_labels,
+            title="Algorithm (behaviour)",
+            loc="best",
+            frameon=False,
+            fontsize=7,
+        )
 
     # Adjust axis limits to include seed points and ellipses
     if all_seed_x and all_seed_y and means:
-        min_x = min(all_seed_x + [mx - w / 2 for mx, w in zip([m[0] for m in means], widths)])
-        max_x = max(all_seed_x + [mx + w / 2 for mx, w in zip([m[0] for m in means], widths)])
-        min_y = min(all_seed_y + [my - h / 2 for my, h in zip([m[1] for m in means], heights)])
-        max_y = max(all_seed_y + [my + h / 2 for my, h in zip([m[1] for m in means], heights)])
+        means_x = [m[0] for m in means]
+        means_y = [m[1] for m in means]
+        ellipse_lo_x = [mx - w / 2 for mx, w in zip(means_x, widths, strict=False)]
+        ellipse_hi_x = [mx + w / 2 for mx, w in zip(means_x, widths, strict=False)]
+        ellipse_lo_y = [my - h / 2 for my, h in zip(means_y, heights, strict=False)]
+        ellipse_hi_y = [my + h / 2 for my, h in zip(means_y, heights, strict=False)]
+        min_x = min(all_seed_x + ellipse_lo_x)
+        max_x = max(all_seed_x + ellipse_hi_x)
+        min_y = min(all_seed_y + ellipse_lo_y)
+        max_y = max(all_seed_y + ellipse_hi_y)
         pad_x = (max_x - min_x) * 0.08 if max_x > min_x else 0.1
         pad_y = (max_y - min_y) * 0.08 if max_y > min_y else 0.1
         ax.set_xlim(min_x - pad_x, max_x + pad_x)

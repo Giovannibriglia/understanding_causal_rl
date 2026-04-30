@@ -26,14 +26,14 @@ from __future__ import annotations
 # env_name is a prefix match (both envs share the same structure).
 ID_STATUS_MAP: dict[tuple[str, int], str] = {
     # On-policy cells (cells 1-2): no off-policy confounding; ID depends on Z.
-    ("tabular-sepsis-v0", 1): "id",          # Z observed, π_b = π_e → no gap
+    ("tabular-sepsis-v0", 1): "id",  # Z observed, π_b = π_e → no gap
     ("tabular-sepsis-v0", 2): "partial_id",  # Z hidden → partial bounds
-    ("tabular-sepsis-v0", 3): "id",          # Z observed, π_b known → IPW identifies
+    ("tabular-sepsis-v0", 3): "id",  # Z observed, π_b known → IPW identifies
     ("tabular-sepsis-v0", 4): "partial_id",  # Z hidden, π_b known → bounds, IPW biased
     ("tabular-sepsis-v0", 5): "partial_id",  # Z observed, π_b unknown → selection bias
-    ("tabular-sepsis-v0", 6): "non_id",      # Z hidden, π_b unknown, U hidden → non-id
+    ("tabular-sepsis-v0", 6): "non_id",  # Z hidden, π_b unknown, U hidden → non-id
     ("tabular-sepsis-v0", 7): "partial_id",  # U observed but bidirected A↔R from unknown π_b
-    ("tabular-sepsis-v0", 8): "non_id",      # Z hidden + U exposed does not recover Z-gap
+    ("tabular-sepsis-v0", 8): "non_id",  # Z hidden + U exposed does not recover Z-gap
     ("continuous-ward-v0", 1): "id",
     ("continuous-ward-v0", 2): "partial_id",
     ("continuous-ward-v0", 3): "id",

@@ -18,8 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from causal_rl.identification.id_oracle import ID_STATUS_ORDER
-from causal_rl.plotting.style import apply_style, figure
-
+from causal_rl.plotting.style import apply_style
 
 _ID_STATUS_LABELS = {
     "id": "Identifiable",
@@ -28,9 +27,9 @@ _ID_STATUS_LABELS = {
 }
 
 _ID_STATUS_COLORS = {
-    "id": "#4CAF50",        # green
+    "id": "#4CAF50",  # green
     "partial_id": "#FF9800",  # orange
-    "non_id": "#F44336",    # red
+    "non_id": "#F44336",  # red
 }
 
 
@@ -81,7 +80,7 @@ def make_identifiability_panel(
     if n_algos == 1:
         axes = [axes]
 
-    for ax, algo in zip(axes, algos):
+    for ax, algo in zip(axes, algos, strict=False):
         algo_data = data[algo]
         x_positions = []
         x_labels = []
@@ -91,7 +90,7 @@ def make_identifiability_panel(
                 continue
             arr = np.array(vals, dtype=np.float64)
             color = _ID_STATUS_COLORS.get(status, "gray")
-            bp = ax.boxplot(
+            ax.boxplot(
                 arr,
                 positions=[i],
                 widths=0.6,

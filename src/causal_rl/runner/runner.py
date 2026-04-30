@@ -172,14 +172,21 @@ class BenchmarkRunner:
             "id_status": self.id_status,
         }
         gap_keys = [
-            "delta_tv", "delta_tv_ci_lo", "delta_tv_ci_hi",
-            "delta_kl", "delta_chi2", "delta_sup",
-            "delta_mmd2", "delta_ks",
+            "delta_tv",
+            "delta_tv_ci_lo",
+            "delta_tv_ci_hi",
+            "delta_kl",
+            "delta_chi2",
+            "delta_sup",
+            "delta_mmd2",
+            "delta_ks",
         ]
         row.update({k: metrics.get(k, 0.0) for k in gap_keys})
         # Distinguish marginal (before IPW) from conditional (after IPW) gaps.
         row["delta_tv_marginal"] = metrics.get("delta_tv_marginal", 0.0)
-        row["delta_tv_conditional"] = metrics.get("delta_tv_conditional", metrics.get("delta_tv", 0.0))
+        row["delta_tv_conditional"] = metrics.get(
+            "delta_tv_conditional", metrics.get("delta_tv", 0.0)
+        )
         self.train_logger.write(row)
 
     def _log_eval(
@@ -322,7 +329,7 @@ class BenchmarkRunner:
         base_z = eval_env.latent_z.detach()
         base_u = eval_env.latent_u.detach()
 
-        for it in range(num_iters):
+        for _it in range(num_iters):
             samples = means.unsqueeze(1) + stds.unsqueeze(1) * torch.randn(
                 (n_envs, pop_size, cem_horizon, act_dim), device=device
             )
@@ -548,15 +555,16 @@ class BenchmarkRunner:
             batch_obj = buffer.sample(self.config.batch_size)
             # Use the most recently computed gap metric as the sensitivity signal
             # for ConfoundedDQN (the true Δ_φ from the eval env, not latent magnitude).
-            batch = {
+            delta_tv_val = float(self._last_gap_metrics.get("delta_tv", 0.0))
+            batch: dict[str, object] = {
                 "obs": batch_obj.obs,
                 "action": batch_obj.action,
                 "reward": batch_obj.reward,
                 "next_obs": batch_obj.next_obs,
                 "done": batch_obj.done,
-                "delta_tv": self._last_gap_metrics.get("delta_tv", 0.0),
+                "delta_tv": delta_tv_val,
             }
-            metrics = self.algo.update(batch)
+            metrics = self.algo.update(batch)  # type: ignore[arg-type]
             if (step % train_interval == 0) or (step == total_updates):
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + step + 40_000)
                 self._last_gap_metrics = gap_metrics
