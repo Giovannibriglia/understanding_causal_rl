@@ -140,17 +140,6 @@ def make_headline_scatter(results_dir: Path, output_dir: Path, env_prefix: str |
         ax.set_xlim(min_x - pad_x, max_x + pad_x)
         ax.set_ylim(min_y - pad_y, max_y + pad_y)
 
-    # Adjust axis limits to include seed points and ellipses
-    if all_seed_x and all_seed_y and means:
-        min_x = min(all_seed_x + [mx - w / 2 for mx, w in zip([m[0] for m in means], widths)])
-        max_x = max(all_seed_x + [mx + w / 2 for mx, w in zip([m[0] for m in means], widths)])
-        min_y = min(all_seed_y + [my - h / 2 for my, h in zip([m[1] for m in means], heights)])
-        max_y = max(all_seed_y + [my + h / 2 for my, h in zip([m[1] for m in means], heights)])
-        pad_x = (max_x - min_x) * 0.08 if max_x > min_x else 0.1
-        pad_y = (max_y - min_y) * 0.08 if max_y > min_y else 0.1
-        ax.set_xlim(min_x - pad_x, max_x + pad_x)
-        ax.set_ylim(min_y - pad_y, max_y + pad_y)
-
     ax.set_xlabel(r"Final $\widehat{\Delta}_{\mathrm{TV}}$")
     ax.set_ylabel("Train - Holdout Return")
 

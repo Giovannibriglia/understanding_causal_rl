@@ -19,6 +19,7 @@ class ContinuousWardEnv(CausalEnv):
         sigma: float = 0.05,
         lambda_action: float = 0.1,
         mc_k: int = 64,
+        alpha_conf: float = 0.0,
         device: str | None = None,
     ) -> None:
         if cell not in CELL_CONFIGS:
@@ -33,6 +34,7 @@ class ContinuousWardEnv(CausalEnv):
         self.sigma = sigma
         self.lambda_action = lambda_action
         self.mc_k = mc_k
+        self.alpha_conf = alpha_conf
         self.device = get_device(device)
 
         self.state_dim = 4
@@ -117,6 +119,79 @@ class ContinuousWardEnv(CausalEnv):
         next_state = (reps_state + self.dt * drift + noise).clamp(0.0, 1.0)
         rewards = self._reward(next_state, reps_action)
         return rewards.view(self.n_envs, self.mc_k)
+
+    def sample_interventional(self, action: Tensor, n: int) -> Tensor:
+        """Draw n reward samples from P(R | do(A=a), current state).
+
+        Marginalises over Z when Z is not exposed; conditions on current Z
+        when Z is exposed.  Returns shape (n_envs, n).
+        """
+        a = action.to(torch.float32).view(self.n_envs, 3).clamp(0.0, 1.0)
+        reps_action = a.repeat_interleave(n, dim=0)
+
+        if self.config.expose_z:
+            # Condition on current (Z, U).
+            reps_state = self.state.repeat_interleave(n, dim=0)
+            reps_z = self.latent_z.repeat_interleave(n, dim=0)
+            reps_u = self.latent_u.repeat_interleave(n, dim=0)
+        else:
+            # Marginalise over Z by resampling it from its prior U[0,1]^z_dim.
+            reps_state = self.state.repeat_interleave(n, dim=0)
+            reps_z = torch.rand(
+                (self.n_envs * n, self.z_dim), device=self.device, dtype=torch.float32
+            )
+            reps_u = torch.randn(
+                (self.n_envs * n, self.u_dim), device=self.device, dtype=torch.float32
+            ) * 0.25
+
+        drift = self._drift(reps_state, reps_action, reps_z, reps_u)
+        noise = self.sigma * torch.randn_like(reps_state)
+        next_state = (reps_state + self.dt * drift + noise).clamp(0.0, 1.0)
+        rewards = self._reward(next_state, reps_action)
+        return rewards.view(self.n_envs, n)
+
+    def sample_observational(self, action: Tensor, n: int) -> Tensor:
+        """Draw n reward samples from P(R | A=a, current observable state).
+
+        When alpha_conf=0, this equals sample_interventional.  When alpha_conf>0
+        the hidden confounder U is resampled with selection bias: samples with
+        higher reward are kept with probability proportional to
+        exp(alpha_conf * reward), simulating a reward-seeking behaviour policy.
+
+        Uses rejection sampling with a fixed number of candidates to keep runtime
+        bounded; returns shape (n_envs, n).
+        """
+        if self.alpha_conf <= 0.0:
+            return self.sample_interventional(action, n)
+
+        a = action.to(torch.float32).view(self.n_envs, 3).clamp(0.0, 1.0)
+        # Draw more candidates than needed for rejection sampling.
+        n_cand = max(n * 8, n + 32)
+        reps_action = a.repeat_interleave(n_cand, dim=0)
+        reps_state = self.state.repeat_interleave(n_cand, dim=0)
+        # Resample Z and U from prior.
+        reps_z = torch.rand(
+            (self.n_envs * n_cand, self.z_dim), device=self.device, dtype=torch.float32
+        )
+        reps_u = torch.randn(
+            (self.n_envs * n_cand, self.u_dim), device=self.device, dtype=torch.float32
+        ) * 0.25
+        drift = self._drift(reps_state, reps_action, reps_z, reps_u)
+        noise = self.sigma * torch.randn_like(reps_state)
+        next_state = (reps_state + self.dt * drift + noise).clamp(0.0, 1.0)
+        rewards_flat = self._reward(next_state, reps_action)  # (n_envs*n_cand,)
+        rewards_mat = rewards_flat.view(self.n_envs, n_cand)  # (n_envs, n_cand)
+
+        # Importance weights proportional to exp(alpha_conf * reward).
+        log_w = self.alpha_conf * rewards_mat
+        log_w = log_w - log_w.max(dim=-1, keepdim=True).values  # stable softmax
+        w = torch.exp(log_w)
+        w = w / w.sum(dim=-1, keepdim=True)
+
+        # Multinomial resample n from the n_cand candidates.
+        idx = torch.multinomial(w, num_samples=n, replacement=True)  # (n_envs, n)
+        selected = rewards_mat.gather(1, idx)  # (n_envs, n)
+        return selected
 
     def do_transition(self, action: Tensor) -> Tensor:
         a = action.to(torch.float32).view(self.n_envs, 3).clamp(0.0, 1.0)
