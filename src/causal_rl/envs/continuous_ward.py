@@ -74,8 +74,7 @@ class ContinuousWardEnv(CausalEnv):
 
     def _info(self) -> dict[str, Tensor]:
         info: dict[str, Tensor] = {"latent_Z": self.latent_z}
-        if self.config.expose_u:
-            info["latent_U"] = self.latent_u
+        info["latent_U"] = self.latent_u
         return info
 
     def reset(self, seed: int | None = None) -> tuple[Tensor, dict[str, Tensor]]:

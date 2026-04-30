@@ -2,7 +2,7 @@
 # Should complete in < 5 minutes on a CPU.  total_frames must be divisible by
 # the env horizon; 2000 / 20 = 100 episodes for tabular (sufficient for a
 # learning trend), 2500 / 50 = 50 episodes for continuous.
-cells: [1, 3, 6]
+cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
 algorithms:

@@ -36,17 +36,11 @@ def make(name: str, **kwargs: object) -> BaseAlgorithm:
     return ALGOS[name].builder(**kwargs)
 
 
-register(AlgoSpec("ppo", PPO, "discrete", {1, 2}, "on_policy"))
-register(AlgoSpec("a2c", A2C, "discrete", {1, 2}, "on_policy"))
-register(AlgoSpec("dqn", DQN, "discrete", {1, 2, 3, 4, 5, 6, 7, 8}, "off_policy"))
-register(AlgoSpec("ddpg", DDPG, "continuous", {1, 2, 3, 4, 5, 6, 7, 8}, "off_policy"))
-register(AlgoSpec("cql", CQL, "discrete", {3, 4, 5, 6, 7, 8}, "off_policy"))
-register(
-    AlgoSpec(
-        "confounded_dqn",
-        ConfoundedDQN,
-        "discrete",
-        {3, 4, 5, 6, 7, 8},
-        "off_policy",
-    )
-)
+_ALL_CELLS: set[int] = {1, 2, 3, 4}
+
+register(AlgoSpec("ppo", PPO, "discrete", _ALL_CELLS, "on_policy"))
+register(AlgoSpec("a2c", A2C, "discrete", _ALL_CELLS, "on_policy"))
+register(AlgoSpec("dqn", DQN, "discrete", _ALL_CELLS, "off_policy"))
+register(AlgoSpec("ddpg", DDPG, "continuous", _ALL_CELLS, "off_policy"))
+register(AlgoSpec("cql", CQL, "discrete", _ALL_CELLS, "off_policy"))
+register(AlgoSpec("confounded_dqn", ConfoundedDQN, "discrete", _ALL_CELLS, "off_policy"))

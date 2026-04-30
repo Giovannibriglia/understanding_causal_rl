@@ -9,6 +9,7 @@ from causal_rl.behaviour.base import BiasedExplorer
 
 class CuriosityExplorer(BiasedExplorer):
     family = "curiosity"
+    depends_on_u = False
 
     def __init__(
         self,

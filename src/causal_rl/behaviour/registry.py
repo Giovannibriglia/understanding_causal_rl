@@ -17,6 +17,7 @@ from causal_rl.behaviour.uniform import UniformExplorer
 class BehaviourSpec:
     name: str
     builder: Callable[..., BiasedExplorer]
+    depends_on_u: bool
 
 
 BEHAVIOURS: dict[str, BehaviourSpec] = {}
@@ -33,10 +34,10 @@ def make(name: str, **kwargs: object) -> BiasedExplorer:
     return BEHAVIOURS[name].builder(**kwargs)
 
 
-register(BehaviourSpec("uniform", UniformExplorer))
-register(BehaviourSpec("reward_aligned", RewardAlignedExplorer))
-register(BehaviourSpec("reward_misaligned", RewardMisalignedExplorer))
-register(BehaviourSpec("information", InformationExplorer))
-register(BehaviourSpec("certainty_seeking", CertaintySeekingExplorer))
-register(BehaviourSpec("curiosity", CuriosityExplorer))
-register(BehaviourSpec("novelty_trap", NoveltyTrapExplorer))
+register(BehaviourSpec("uniform", UniformExplorer, depends_on_u=False))
+register(BehaviourSpec("reward_aligned", RewardAlignedExplorer, depends_on_u=True))
+register(BehaviourSpec("reward_misaligned", RewardMisalignedExplorer, depends_on_u=True))
+register(BehaviourSpec("information", InformationExplorer, depends_on_u=False))
+register(BehaviourSpec("certainty_seeking", CertaintySeekingExplorer, depends_on_u=False))
+register(BehaviourSpec("curiosity", CuriosityExplorer, depends_on_u=False))
+register(BehaviourSpec("novelty_trap", NoveltyTrapExplorer, depends_on_u=False))
