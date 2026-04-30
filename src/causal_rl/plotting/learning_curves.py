@@ -4,7 +4,6 @@ import csv
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,7 +35,7 @@ def _collect_rows(results_dir: Path, csv_name: str) -> list[dict[str, str | int]
 
 def _rolling_mean(y: np.ndarray, window: int) -> np.ndarray:
     if window <= 1 or y.size == 0:
-        return cast(np.ndarray, y.copy())
+        return y.copy()  # type: ignore[no-any-return]
     csum = np.cumsum(np.insert(y, 0, 0.0))
     out = np.empty_like(y)
     for i in range(y.size):
