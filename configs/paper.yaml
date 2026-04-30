@@ -29,3 +29,4 @@ env_horizons:
 offline_transitions: 200000
 offline_updates: 10000
 alpha_conf: 2.0
+n_envs: 256

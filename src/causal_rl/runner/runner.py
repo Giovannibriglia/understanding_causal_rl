@@ -49,6 +49,9 @@ class RunnerConfig:
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
     alpha_conf: float = 0.0
+    eval_n_envs: int | None = None
+    n_bootstrap: int = 200
+    n_samples_gap: int = 200
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
 
@@ -91,6 +94,22 @@ class BenchmarkRunner:
             )
 
         self._move_algo_to_device()
+        # Sanity: warn if bootstrap memory would be excessive.
+        _mem = self.config.n_envs * self.config.n_bootstrap * self.config.n_samples_gap
+        if _mem > 5e8:
+            import warnings
+
+            self._effective_n_bootstrap = max(
+                1, int(5e8 / (self.config.n_envs * self.config.n_samples_gap))
+            )
+            warnings.warn(
+                f"n_envs={self.config.n_envs} * n_bootstrap={self.config.n_bootstrap} * "
+                f"n_samples_gap={self.config.n_samples_gap} = {_mem:.0f} > 5e8. "
+                f"Clamping n_bootstrap to {self._effective_n_bootstrap}.",
+                stacklevel=2,
+            )
+        else:
+            self._effective_n_bootstrap = self.config.n_bootstrap
         if self.config.total_frames <= 0:
             msg = "total_frames must be > 0."
             raise ValueError(msg)
@@ -113,25 +132,39 @@ class BenchmarkRunner:
             if isinstance(value, nn.Module):
                 value.to(self.device)
 
+    @property
+    def _eval_n_envs(self) -> int:
+        return (
+            self.config.eval_n_envs if self.config.eval_n_envs is not None else self.config.n_envs
+        )
+
     def _make_env_instance(self) -> CausalEnv:
+        return self._make_env_with_n(self.config.n_envs)
+
+    def _make_eval_env_instance(self) -> CausalEnv:
+        return self._make_env_with_n(self._eval_n_envs)
+
+    def _make_env_with_n(self, n_envs: int) -> CausalEnv:
         if self.config.horizon is None:
             return make_env(
                 self.config.env_name,
                 cell=self.config.cell,
-                n_envs=self.config.n_envs,
+                n_envs=n_envs,
                 alpha_conf=self.config.alpha_conf,
                 device=str(self.device),
             )
         return make_env(
             self.config.env_name,
             cell=self.config.cell,
-            n_envs=self.config.n_envs,
+            n_envs=n_envs,
             alpha_conf=self.config.alpha_conf,
             horizon=self.config.horizon,
             device=str(self.device),
         )
 
     def _write_meta(self) -> None:
+        # total_frames is the number of batched ticks (each tick = n_envs parallel steps).
+        # total_transitions is the actual number of (s,a,s',r) tuples collected.
         meta = {
             "seed": self.config.seed,
             "cell": self.config.cell,
@@ -141,7 +174,9 @@ class BenchmarkRunner:
             "device": str(self.device),
             "horizon": self.env.horizon,
             "rollout_horizon": self.config.rollout_horizon or self.env.horizon,
+            "n_envs": self.config.n_envs,
             "total_frames": self.config.total_frames,
+            "total_transitions": self.config.total_frames * self.config.n_envs,
             "n_checkpoints_train": self.config.n_checkpoints_train,
             "n_checkpoints_eval": self.config.n_checkpoints_eval,
             "id_status": self.id_status,
@@ -237,11 +272,11 @@ class BenchmarkRunner:
     def _evaluate_policy(self, seed: int) -> torch.Tensor:
         cpu_rng_state = torch.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-        eval_env = self._make_env_instance()
+        eval_env = self._make_eval_env_instance()
         try:
             with torch.no_grad():
                 obs, _ = eval_env.reset(seed=seed)
-                returns = torch.zeros((self.config.n_envs,), device=self.device)
+                returns = torch.zeros((self._eval_n_envs,), device=self.device)
                 for _ in range(eval_env.horizon):
                     action, _ = self.algo.select_action(obs, deterministic=True)
                     obs, reward, terminated, truncated, _ = eval_env.step(action)
@@ -373,11 +408,11 @@ class BenchmarkRunner:
     def _evaluate_oracle(self, seed: int) -> torch.Tensor:
         cpu_rng_state = torch.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-        eval_env = self._make_env_instance()
+        eval_env = self._make_eval_env_instance()
         try:
             with torch.no_grad():
                 obs, _ = eval_env.reset(seed=seed)
-                returns = torch.zeros((self.config.n_envs,), device=self.device)
+                returns = torch.zeros((self._eval_n_envs,), device=self.device)
                 for _ in range(eval_env.horizon):
                     action = self._oracle_action(eval_env, obs)
                     obs, reward, terminated, truncated, _ = eval_env.step(action)
@@ -394,7 +429,7 @@ class BenchmarkRunner:
     def _evaluate_gap_metrics(self, seed: int) -> dict[str, float]:
         cpu_rng_state = torch.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-        eval_env = self._make_env_instance()
+        eval_env = self._make_eval_env_instance()
         try:
             totals: dict[str, float] = {}
             n_steps = 0
@@ -409,6 +444,8 @@ class BenchmarkRunner:
                         action,
                         observed_reward=reward,
                         pi_b_logprob=None,
+                        n_samples=self.config.n_samples_gap,
+                        n_bootstrap=self._effective_n_bootstrap,
                     )
                     for key, value in step_metrics.items():
                         totals[key] = totals.get(key, 0.0) + float(value)
@@ -465,7 +502,7 @@ class BenchmarkRunner:
         next_obs_buf: list[torch.Tensor] = []
         done_buf: list[torch.Tensor] = []
         logp_buf: list[torch.Tensor] = []
-        for frame in range(1, self.config.total_frames + 1):
+        for tick in range(1, self.config.total_frames + 1):
             action, log_prob = self.algo.select_action(obs)
             next_obs, reward, terminated, truncated, info = self.env.step(action)
             done = (terminated | truncated).float()
@@ -478,7 +515,7 @@ class BenchmarkRunner:
             done_buf.append(done.detach())
             logp_buf.append(log_prob.detach())
 
-            should_update = (len(obs_buf) >= rollout_horizon) or (frame == self.config.total_frames)
+            should_update = (len(obs_buf) >= rollout_horizon) or (tick == self.config.total_frames)
             if should_update:
                 rewards_t = torch.stack(rew_buf, dim=0)
                 done_t = torch.stack(done_buf, dim=0)
@@ -523,20 +560,20 @@ class BenchmarkRunner:
                 episode += 1
                 ep_return = torch.zeros_like(ep_return)
                 obs, info = self.env.reset()
-            if frame % train_interval == 0 or frame == self.config.total_frames:
-                gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + frame + 40_000)
+            if tick % train_interval == 0 or tick == self.config.total_frames:
+                gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + tick + 40_000)
                 self._last_gap_metrics = gap_metrics
                 metrics_for_log = {**latest_update_metrics, **gap_metrics}
                 self._log_train(
-                    step=frame, episode=episode, returns=returns_snapshot, metrics=metrics_for_log
+                    step=tick, episode=episode, returns=returns_snapshot, metrics=metrics_for_log
                 )
-            if frame % eval_interval == 0 or frame == self.config.total_frames:
-                eval_returns = self._evaluate_policy(seed=self.config.seed + frame + 10_000)
-                holdout_returns = self._evaluate_policy(seed=self.config.seed + frame + 20_000)
-                oracle_returns = self._evaluate_oracle(seed=self.config.seed + frame + 30_000)
-                gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + frame + 50_000)
+            if tick % eval_interval == 0 or tick == self.config.total_frames:
+                eval_returns = self._evaluate_policy(seed=self.config.seed + tick + 10_000)
+                holdout_returns = self._evaluate_policy(seed=self.config.seed + tick + 20_000)
+                oracle_returns = self._evaluate_oracle(seed=self.config.seed + tick + 30_000)
+                gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + tick + 50_000)
                 self._log_eval(
-                    step=frame,
+                    step=tick,
                     episode=episode,
                     eval_returns=eval_returns,
                     holdout_returns=holdout_returns,

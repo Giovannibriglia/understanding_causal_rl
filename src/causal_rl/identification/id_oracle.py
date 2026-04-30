@@ -98,6 +98,4 @@ def get_id_status_ordinal(
     beh_depends_on_u: bool = False,
 ) -> int:
     """Return an ordinal encoding: id=0, partial_id=1, non_id=2."""
-    return ID_STATUS_ORDER.get(
-        get_id_status(env_name, cell, alpha_conf, beh_depends_on_u), 2
-    )
+    return ID_STATUS_ORDER.get(get_id_status(env_name, cell, alpha_conf, beh_depends_on_u), 2)

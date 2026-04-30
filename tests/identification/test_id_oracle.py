@@ -4,7 +4,6 @@ import pytest
 
 from causal_rl.identification.id_oracle import get_id_status
 
-
 ENV = "tabular-sepsis-v0"
 
 # Truth table: (cell, alpha_conf, beh_depends_on_u) -> expected status
@@ -17,7 +16,7 @@ TRUTH_TABLE: list[tuple[int, float, bool, str]] = [
     # C2 (expose_z=T, pi_b_known=F): id unless confounded
     (2, 0.0, False, "id"),
     (2, 2.0, False, "id"),
-    (2, 0.0, True, "id"),   # beh_depends_on_u=T but alpha_conf=0 → not confounded
+    (2, 0.0, True, "id"),  # beh_depends_on_u=T but alpha_conf=0 → not confounded
     (2, 2.0, True, "partial_id"),
     # C3 (expose_z=F, pi_b_known=T): always partial_id
     (3, 0.0, False, "partial_id"),

@@ -27,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--n-envs", type=int, default=64)
+    parser.add_argument("--eval-n-envs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--offline-transitions", type=int, default=50_000)
     parser.add_argument("--offline-updates", type=int, default=2_000)
@@ -56,6 +57,7 @@ def main() -> None:
         output_dir=args.output,
         device=args.device,
         n_envs=args.n_envs,
+        eval_n_envs=args.eval_n_envs,
         batch_size=args.batch_size,
         offline_transitions=args.offline_transitions,
         offline_updates=args.offline_updates,
