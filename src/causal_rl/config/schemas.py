@@ -53,6 +53,9 @@ class MatrixConfig(BaseModel):
     n_checkpoints_train: int = 50
     n_checkpoints_eval: int = 10
     env_horizons: dict[str, int] = Field(default_factory=dict)
+    offline_transitions: int = 50_000
+    offline_updates: int = 2_000
+    alpha_conf: float = 0.0
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
