@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from typing import Dict, Tuple, List
-
-import hashlib
 import colorsys
+import hashlib
 
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 
 # Base colorblind-friendly palette (Matplotlib tab20)
-_PALETTE = [mcolors.to_hex(c) for c in plt.get_cmap("tab20").colors]
+_PALETTE = [mcolors.to_hex(c) for c in plt.get_cmap("tab20").colors]  # type: ignore[attr-defined]
 
 # Preferred algorithm ordering to assign stable base colors
 _ALGO_ORDER = ["ppo", "a2c", "dqn", "ddpg", "cql", "confounded_dqn", "td3", "sac"]
@@ -19,15 +17,15 @@ _LINESTYLES = ["-", "--", "-.", ":"]
 _MARKERS = [None, "o", "s", "^", "D", "v", "P", "X"]
 
 # Caches
-_STYLE_CACHE: Dict[Tuple[str, str], Dict[str, object]] = {}
-_COLOR_CACHE: Dict[str, str] = {}
+_STYLE_CACHE: dict[tuple[str, str], dict[str, object]] = {}
+_COLOR_CACHE: dict[str, str] = {}
 
 
 def get_palette() -> list[str]:
     return list(_PALETTE)
 
 
-def _hex_to_hsv(hex_color: str) -> Tuple[float, float, float]:
+def _hex_to_hsv(hex_color: str) -> tuple[float, float, float]:
     r, g, b = mcolors.to_rgb(hex_color)
     h, s, v = colorsys.rgb_to_hsv(r, g, b)
     return (h * 360.0, s, v)
@@ -53,7 +51,7 @@ def _base_color_for_algo(algo: str) -> str:
     return col
 
 
-def get_style(algo: str | None, behaviour: str | None = None) -> Dict[str, object]:
+def get_style(algo: str | None, behaviour: str | None = None) -> dict[str, object]:
     """Return plotting style for (algorithm, behaviour).
 
     Color is derived from algorithm base color, with small deterministic
@@ -69,22 +67,22 @@ def get_style(algo: str | None, behaviour: str | None = None) -> Dict[str, objec
     base_h, base_s, base_v = _hex_to_hsv(base_hex)
 
     if behaviour is None or behaviour == "":
-        style = {"color": base_hex, "linestyle": _LINESTYLES[0], "marker": None}
+        style: dict[str, object] = {"color": base_hex, "linestyle": _LINESTYLES[0], "marker": None}
         _STYLE_CACHE[key] = style
         return style
 
     # Deterministic variant index from behaviour string
     digest = hashlib.md5(str(behaviour).encode("utf-8")).hexdigest()
     hval = int(digest, 16)
-    VARIANTS = 9
-    OFFSETS = [-48, -36, -24, -12, 0, 12, 24, 36, 48]
-    idx = hval % VARIANTS
+    variants = 9
+    offsets = [-48, -36, -24, -12, 0, 12, 24, 36, 48]
+    idx = hval % variants
 
     # Hue perturbation around base hue
-    hue_deg = (base_h + OFFSETS[idx]) % 360.0
+    hue_deg = (base_h + offsets[idx]) % 360.0
 
     # Slightly vary saturation and value to increase distinctiveness
-    center = VARIANTS // 2
+    center = variants // 2
     s_delta = (idx - center) * 0.03
     v_delta = -(idx - center) * 0.02
     s = min(0.95, max(0.35, base_s + s_delta))
@@ -99,7 +97,20 @@ def get_style(algo: str | None, behaviour: str | None = None) -> Dict[str, objec
     return style
 
 
-def parse_algo_beh_from_label(label: str) -> Tuple[str | None, str | None]:
+def get_color(algo: str | None, behaviour: str | None = None) -> str:
+    return str(get_style(algo, behaviour).get("color", "#333333"))
+
+
+def get_marker(algo: str | None, behaviour: str | None = None) -> str | None:
+    v = get_style(algo, behaviour).get("marker")
+    return str(v) if v is not None else None
+
+
+def get_linestyle(algo: str | None, behaviour: str | None = None) -> str:
+    return str(get_style(algo, behaviour).get("linestyle", "-"))
+
+
+def parse_algo_beh_from_label(label: str) -> tuple[str | None, str | None]:
     if label is None:
         return None, None
     s = str(label)

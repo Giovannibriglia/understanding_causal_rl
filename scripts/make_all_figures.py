@@ -13,6 +13,7 @@ from causal_rl.plotting.ablations import make_ablations  # noqa: E402
 from causal_rl.plotting.cell_grid import make_cell_grid  # noqa: E402
 from causal_rl.plotting.gap_curves import make_gap_curves  # noqa: E402
 from causal_rl.plotting.headline_scatter import make_headline_scatter  # noqa: E402
+from causal_rl.plotting.identifiability_panel import make_identifiability_panel  # noqa: E402
 from causal_rl.plotting.learning_curves import make_learning_curves  # noqa: E402
 from causal_rl.plotting.summary_tables import make_summary_tables  # noqa: E402
 
@@ -39,6 +40,7 @@ def main() -> None:
         make_learning_curves(args.results, out, env_prefix=prefix)
         make_gap_curves(args.results, out, env_prefix=prefix)
         make_headline_scatter(args.results, out, env_prefix=prefix)
+        make_identifiability_panel(args.results, out, env_prefix=prefix)
         make_cell_grid(args.results, out, env_prefix=prefix)
         make_ablations(args.results, out, env_prefix=prefix)
         make_summary_tables(args.results, out, env_prefix=prefix)

@@ -5,8 +5,8 @@ import csv
 import itertools
 import subprocess
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 from tqdm import tqdm
 
@@ -65,7 +65,9 @@ def main() -> None:
         if candidate.is_file():
             config_file = candidate
         else:
-            candidate2 = Path("configs") / (config_arg if str(config_arg).endswith(".yaml") else f"{config_arg}.yaml")
+            candidate2 = Path("configs") / (
+                config_arg if str(config_arg).endswith(".yaml") else f"{config_arg}.yaml"
+            )
             if candidate2.is_file():
                 config_file = candidate2
             else:

@@ -19,6 +19,7 @@ from causal_rl.envs.continuous_ward import ContinuousWardEnv
 from causal_rl.envs.registry import ENVS
 from causal_rl.envs.registry import make as make_env
 from causal_rl.envs.tabular_sepsis import TabularSepsisEnv
+from causal_rl.identification.id_oracle import get_id_status
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
 from causal_rl.runner.collector import collect_offline_dataset
 from causal_rl.runner.csv_logger import CSVLogger
@@ -63,6 +64,7 @@ class BenchmarkRunner:
 
         self.env = self._make_env_instance()
         self.env_spec = ENVS[config.env_name]
+        self.id_status = get_id_status(config.env_name, config.cell)
 
         obs_dim = self.env.obs_shape[0]
         if self.env.is_discrete_action:
@@ -97,6 +99,8 @@ class BenchmarkRunner:
             raise ValueError(msg)
         self._write_meta()
         self._oracle_policy_by_steps_left: torch.Tensor | None = None
+        # Cache for the latest gap metric so ConfoundedDQN can use it.
+        self._last_gap_metrics: dict[str, float] = {"delta_tv": 0.0}
 
     def _move_algo_to_device(self) -> None:
         for value in vars(self.algo).values():
@@ -132,6 +136,7 @@ class BenchmarkRunner:
             "total_frames": self.config.total_frames,
             "n_checkpoints_train": self.config.n_checkpoints_train,
             "n_checkpoints_eval": self.config.n_checkpoints_eval,
+            "id_status": self.id_status,
             "cli": " ".join(sys.argv),
             "git_commit": get_git_commit(),
             "python": sys.version,
@@ -164,12 +169,24 @@ class BenchmarkRunner:
             "kl": metrics.get("kl", 0.0),
             "lr": metrics.get("lr", 0.0),
             "grad_norm": metrics.get("grad_norm", 0.0),
+            "id_status": self.id_status,
         }
-        row.update(
-            {k: metrics.get(k, 0.0) for k in ["delta_tv", "delta_kl", "delta_chi2", "delta_sup"]}
-        )
+        gap_keys = [
+            "delta_tv",
+            "delta_tv_ci_lo",
+            "delta_tv_ci_hi",
+            "delta_kl",
+            "delta_chi2",
+            "delta_sup",
+            "delta_mmd2",
+            "delta_ks",
+        ]
+        row.update({k: metrics.get(k, 0.0) for k in gap_keys})
+        # Distinguish marginal (before IPW) from conditional (after IPW) gaps.
         row["delta_tv_marginal"] = metrics.get("delta_tv_marginal", 0.0)
-        row["delta_tv_conditional"] = metrics.get("delta_tv_conditional", 0.0)
+        row["delta_tv_conditional"] = metrics.get(
+            "delta_tv_conditional", metrics.get("delta_tv", 0.0)
+        )
         self.train_logger.write(row)
 
     def _log_eval(
@@ -196,9 +213,14 @@ class BenchmarkRunner:
             "eval_holdout_return_mean": float(holdout_returns.mean().item()),
             "eval_holdout_return_std": float(holdout_returns.std().item()),
             "delta_tv": metrics.get("delta_tv", 0.0),
+            "delta_tv_ci_lo": metrics.get("delta_tv_ci_lo", 0.0),
+            "delta_tv_ci_hi": metrics.get("delta_tv_ci_hi", 0.0),
             "delta_kl": metrics.get("delta_kl", 0.0),
             "delta_chi2": metrics.get("delta_chi2", 0.0),
             "delta_sup": metrics.get("delta_sup", 0.0),
+            "delta_mmd2": metrics.get("delta_mmd2", 0.0),
+            "delta_ks": metrics.get("delta_ks", 0.0),
+            "id_status": self.id_status,
             "eval_oracle_return_mean": float(oracle_returns.mean().item()),
             "eval_oracle_return_std": float(oracle_returns.std().item()),
         }
@@ -267,7 +289,6 @@ class BenchmarkRunner:
             try:
                 return self._cem_oracle(eval_env, obs)
             except Exception:
-                # fallback to grid if CEM fails for any reason
                 oracle_choice = "grid"
         if oracle_choice == "grid":
             act_dim = int(eval_env.act_shape[0])
@@ -285,20 +306,15 @@ class BenchmarkRunner:
         if oracle_choice == "algo":
             action, _ = self.algo.select_action(obs, deterministic=True)
             return action
-        # Unknown oracle type
         raise ValueError(f"Unknown oracle choice: {oracle_choice}")
 
     def _cem_oracle(self, eval_env: ContinuousWardEnv, obs: torch.Tensor) -> torch.Tensor:
-        """Cross-Entropy Method (CEM) planning oracle for ContinuousWardEnv.
-
-        Returns actions of shape (n_envs, act_dim).
-        """
+        """Cross-Entropy Method (CEM) planning oracle for ContinuousWardEnv."""
         device = eval_env.state.device
         n_envs = int(eval_env.n_envs)
         act_dim = int(eval_env.act_shape[0])
         state_dim = int(eval_env.state.shape[-1])
 
-        # hyperparameters (tunable)
         pop_size = 256
         num_iters = 4
         elite_frac = 0.1
@@ -306,23 +322,19 @@ class BenchmarkRunner:
         num_elite = max(1, int(pop_size * elite_frac))
         smoothing = 0.1
 
-        # Initialize mean/std in action space
         means = torch.full((n_envs, cem_horizon, act_dim), 0.5, device=device)
         stds = torch.full((n_envs, cem_horizon, act_dim), 0.25, device=device)
 
-        # Latents and initial state expanded per candidate
         base_state = eval_env.state.detach()
         base_z = eval_env.latent_z.detach()
         base_u = eval_env.latent_u.detach()
 
-        for it in range(num_iters):
-            # sample candidate action sequences: (n_envs, pop, H, act_dim)
+        for _it in range(num_iters):
             samples = means.unsqueeze(1) + stds.unsqueeze(1) * torch.randn(
                 (n_envs, pop_size, cem_horizon, act_dim), device=device
             )
             samples = samples.clamp(0.0, 1.0)
 
-            # Simulate deterministically (no process noise) to compute returns
             returns = torch.zeros((n_envs, pop_size), device=device)
             discount = 1.0
             state = base_state.unsqueeze(1).expand(-1, pop_size, -1).reshape(-1, state_dim)
@@ -330,29 +342,23 @@ class BenchmarkRunner:
             u = base_u.unsqueeze(1).expand(-1, pop_size, -1).reshape(-1, base_u.shape[-1])
 
             for t in range(cem_horizon):
-                action_t = samples[:, :, t, :].reshape(-1, act_dim)  # (n_envs*pop, act_dim)
-                # compute deterministic next state using the environment's drift
+                action_t = samples[:, :, t, :].reshape(-1, act_dim)
                 drift = eval_env._drift(state, action_t, z, u)
                 next_state = (state + eval_env.dt * drift).clamp(0.0, 1.0)
-                # reward for the resulting state/action
                 rew = eval_env._reward(next_state, action_t).reshape(n_envs, pop_size)
                 returns = returns + discount * rew
                 discount = discount * float(eval_env.gamma)
-                # advance state for next step
                 state = next_state
-            # select elites per environment
-            topk = torch.topk(returns, k=num_elite, dim=1).indices  # (n_envs, num_elite)
+            topk = torch.topk(returns, k=num_elite, dim=1).indices
             new_means = torch.zeros_like(means)
             new_stds = torch.zeros_like(stds)
             for i in range(n_envs):
-                elites = samples[i, topk[i]]  # (num_elite, H, act_dim)
+                elites = samples[i, topk[i]]
                 new_means[i] = elites.mean(dim=0)
                 new_stds[i] = elites.std(dim=0) + 1e-6
-            # update distribution (smoothed)
             means = smoothing * new_means + (1.0 - smoothing) * means
             stds = smoothing * new_stds + (1.0 - smoothing) * stds
 
-        # return first-step mean action per env
         actions = means[:, 0, :].clamp(0.0, 1.0)
         return actions
 
@@ -405,9 +411,13 @@ class BenchmarkRunner:
             if n_steps == 0:
                 return {
                     "delta_tv": 0.0,
+                    "delta_tv_ci_lo": 0.0,
+                    "delta_tv_ci_hi": 0.0,
                     "delta_kl": 0.0,
                     "delta_chi2": 0.0,
                     "delta_sup": 0.0,
+                    "delta_mmd2": 0.0,
+                    "delta_ks": 0.0,
                     "delta_tv_marginal": 0.0,
                     "delta_tv_conditional": 0.0,
                 }
@@ -507,6 +517,7 @@ class BenchmarkRunner:
                 obs, info = self.env.reset()
             if frame % train_interval == 0 or frame == self.config.total_frames:
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + frame + 40_000)
+                self._last_gap_metrics = gap_metrics
                 metrics_for_log = {**latest_update_metrics, **gap_metrics}
                 self._log_train(
                     step=frame, episode=episode, returns=returns_snapshot, metrics=metrics_for_log
@@ -542,18 +553,23 @@ class BenchmarkRunner:
         eval_interval = max(1, total_updates // max(1, self.config.n_checkpoints_eval))
         for step in range(1, total_updates + 1):
             batch_obj = buffer.sample(self.config.batch_size)
-            batch = {
+            # Use the most recently computed gap metric as the sensitivity signal
+            # for ConfoundedDQN (the true Δ_φ from the eval env, not latent magnitude).
+            delta_tv_val = float(self._last_gap_metrics.get("delta_tv", 0.0))
+            batch: dict[str, object] = {
                 "obs": batch_obj.obs,
                 "action": batch_obj.action,
                 "reward": batch_obj.reward,
                 "next_obs": batch_obj.next_obs,
                 "done": batch_obj.done,
-                "delta_tv": batch_obj.latent.abs().mean(),
+                "delta_tv": delta_tv_val,
             }
-            metrics = self.algo.update(batch)
+            metrics = self.algo.update(batch)  # type: ignore[arg-type]
             if (step % train_interval == 0) or (step == total_updates):
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + step + 40_000)
+                self._last_gap_metrics = gap_metrics
                 if self.cell_cfg.pi_b_known:
+                    # IPW-corrected gap estimate using batch behaviour log-probs.
                     ipw_batch_metrics = compute_gap_metrics(
                         self.env,
                         batch_obj.obs,
@@ -561,7 +577,11 @@ class BenchmarkRunner:
                         observed_reward=batch_obj.reward,
                         pi_b_logprob=batch_obj.behaviour_logprob,
                     )
-                    gap_metrics["delta_tv_marginal"] = ipw_batch_metrics["delta_tv"]
+                    # Conditional (IPW-corrected) gap is more interpretable in known-π_b cells.
+                    gap_metrics["delta_tv_conditional"] = ipw_batch_metrics.get(
+                        "delta_tv_conditional", gap_metrics.get("delta_tv_conditional", 0.0)
+                    )
+                    gap_metrics["delta_tv_marginal"] = gap_metrics.get("delta_tv", 0.0)
                 metrics_for_log = {**metrics, **gap_metrics}
                 self._log_train(
                     step=step,

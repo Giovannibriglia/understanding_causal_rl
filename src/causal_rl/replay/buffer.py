@@ -54,24 +54,25 @@ class ReplayBuffer:
         behaviour_logprob: Tensor | None,
         latent: Tensor | None,
     ) -> None:
+        """Vectorised batch insert into the circular buffer."""
         n = obs.shape[0]
-        for i in range(n):
-            idx = self._ptr
-            self.obs[idx] = obs[i]
-            self.action[idx] = action[i]
-            self.reward[idx] = reward[i]
-            self.next_obs[idx] = next_obs[i]
-            self.done[idx] = done[i]
-            self.behaviour_logprob[idx] = (
-                behaviour_logprob[i]
-                if behaviour_logprob is not None
-                else torch.tensor(0.0, device=self.device)
-            )
-            self.latent[idx] = (
-                latent[i] if latent is not None else torch.tensor([0.0], device=self.device)
-            )
-            self._ptr = (self._ptr + 1) % self.capacity
-            self._size = min(self._size + 1, self.capacity)
+        # Build contiguous index array (may wrap around)
+        indices = torch.arange(self._ptr, self._ptr + n, device=self.device) % self.capacity
+        self.obs[indices] = obs.to(self.device)
+        self.action[indices] = action.to(self.device)
+        self.reward[indices] = reward.view(n).to(self.device)
+        self.next_obs[indices] = next_obs.to(self.device)
+        self.done[indices] = done.view(n).to(self.device)
+        if behaviour_logprob is not None:
+            self.behaviour_logprob[indices] = behaviour_logprob.view(n).to(self.device)
+        else:
+            self.behaviour_logprob[indices] = 0.0
+        if latent is not None:
+            self.latent[indices] = latent.view(n, -1).to(self.device)
+        else:
+            self.latent[indices] = 0.0
+        self._ptr = (self._ptr + n) % self.capacity
+        self._size = min(self._size + n, self.capacity)
 
     def sample(self, batch_size: int) -> ReplayBatch:
         if self._size == 0:

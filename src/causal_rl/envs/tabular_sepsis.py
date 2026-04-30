@@ -155,21 +155,87 @@ class TabularSepsisEnv(CausalEnv):
         return self.reward_probs[self._latent_state, a]
 
     def observed_reward_prob(self, action: Tensor) -> Tensor:
-        p_do = self.do_reward(action)
-        if self.cell in {3}:
-            return p_do
+        """Returns the observational reward distribution P(R | A=a, obs_state).
+
+        When alpha_conf=0 (no selection bias), this equals the interventional
+        distribution do_reward().  When alpha_conf>0 the behaviour policy's
+        reward-seeking selection creates a gap (see sample_observational).
+        """
         a = action.view(-1).to(torch.long).clamp(min=0, max=N_ACTIONS - 1)
-        shift = 0.02 * float(self.cell - 1)
-        if self.cell in {7, 8}:
-            shift += 0.05 * self.alpha_conf
-        state_phase = ((self._latent_state % 31).float() / 31.0) * (2.0 * torch.pi)
-        state_weight = 0.5 + 0.25 * torch.sin(state_phase)
-        action_weight = 0.25 * (a.float() / float(N_ACTIONS - 1))
-        modulation = torch.clamp(state_weight + action_weight, min=0.1, max=1.0)
-        p_obs = p_do.clone()
-        p_obs[:, 1] = torch.clamp(p_obs[:, 1] - shift * modulation, 1e-3, 1.0 - 1e-3)
-        p_obs[:, 0] = 1.0 - p_obs[:, 1]
-        return p_obs
+        mu_base = self.reward_probs[self._latent_state, a, 1]  # P(R=+1 | latent, a)
+
+        if self.alpha_conf <= 0.0:
+            return self.reward_probs[self._latent_state, a]
+
+        # U-based selection bias: the behaviour policy preferentially selects
+        # action a when the hidden U=1 (high-reward) state is active.
+        # This is equivalent to P_obs(R=+1) = (w0*mu0 + w1*mu1)/(w0+w1)
+        # where mu_u = mu_base ± delta and w_u ∝ exp(alpha_conf * mu_u).
+        delta = torch.tensor(min(0.05 * self.alpha_conf, 0.45))
+        mu_u0 = (mu_base - delta).clamp(0.01, 0.99)
+        mu_u1 = (mu_base + delta).clamp(0.01, 0.99)
+        w0 = torch.exp(-self.alpha_conf * delta * torch.ones_like(mu_base))
+        w1 = torch.exp(self.alpha_conf * delta * torch.ones_like(mu_base))
+        p_obs_pos = (w0 * mu_u0 + w1 * mu_u1) / (w0 + w1)
+        p_obs_pos = p_obs_pos.clamp(1e-3, 1.0 - 1e-3)
+        return torch.stack([1.0 - p_obs_pos, p_obs_pos], dim=-1)
+
+    def sample_interventional(self, action: Tensor, n: int) -> Tensor:
+        """Draw n reward samples from P(R | do(A=a), observable_state).
+
+        Marginalises over Z when Z is not exposed to the agent; conditions on
+        the current Z when Z is exposed.  Returns shape (n_envs, n) with
+        values in {-1, +1}.
+        """
+        a = action.view(-1).to(torch.long).clamp(0, N_ACTIONS - 1)
+        batch = a.shape[0]
+
+        if self.config.expose_z:
+            # Z is observed: condition on it directly (no marginalisation).
+            p_do = self.reward_probs[self._latent_state, a, 1]  # (batch,)
+        else:
+            # Z is hidden: marginalise uniformly over Z ∈ {0, 1}.
+            s_obs = self._latent_state % OBS_STATES
+            p0 = self.reward_probs[s_obs, a, 1]
+            p1 = self.reward_probs[OBS_STATES + s_obs, a, 1]
+            p_do = 0.5 * p0 + 0.5 * p1  # (batch,)
+
+        samples = torch.bernoulli(p_do.unsqueeze(-1).expand(batch, n))
+        return torch.where(samples == 1, torch.ones_like(samples), -torch.ones_like(samples))
+
+    def sample_observational(self, action: Tensor, n: int) -> Tensor:
+        """Draw n reward samples from P(R | A=a, observable_state).
+
+        When alpha_conf=0 (no selection bias from the behaviour policy)
+        this equals sample_interventional.  When alpha_conf>0 a hidden
+        confounder U biases the behaviour policy toward reward-seeking
+        actions, making the observational distribution different from the
+        interventional one.  The model:
+
+            P_obs(R=+1 | A=a, S) = (w0·μ(U=0) + w1·μ(U=1)) / (w0 + w1)
+
+        where μ(U=u) = reward_prob ± delta, delta = 0.05·alpha_conf, and
+        w_u ∝ exp(alpha_conf · μ(U=u)) reflects the selection bias.
+
+        Returns shape (n_envs, n) with values in {-1, +1}.
+        """
+        a = action.view(-1).to(torch.long).clamp(0, N_ACTIONS - 1)
+        batch = a.shape[0]
+        mu_base = self.reward_probs[self._latent_state, a, 1]  # (batch,)
+
+        if self.alpha_conf <= 0.0:
+            p_obs = mu_base
+        else:
+            delta = float(min(0.05 * self.alpha_conf, 0.45))
+            mu_u0 = (mu_base - delta).clamp(0.01, 0.99)
+            mu_u1 = (mu_base + delta).clamp(0.01, 0.99)
+            w0 = torch.exp(-self.alpha_conf * delta * torch.ones_like(mu_base))
+            w1 = torch.exp(self.alpha_conf * delta * torch.ones_like(mu_base))
+            p_obs = (w0 * mu_u0 + w1 * mu_u1) / (w0 + w1)
+            p_obs = p_obs.clamp(1e-3, 1.0 - 1e-3)
+
+        samples = torch.bernoulli(p_obs.unsqueeze(-1).expand(batch, n))
+        return torch.where(samples == 1, torch.ones_like(samples), -torch.ones_like(samples))
 
     def do_transition(self, action: Tensor) -> Tensor:
         a = action.view(-1).to(torch.long).clamp(min=0, max=N_ACTIONS - 1)

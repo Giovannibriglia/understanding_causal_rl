@@ -1,18 +1,23 @@
-# Smoke tests for fast local iteration
-cells: [1, 2, 3]
+# Smoke-test / CI config: minimal compute for pipeline sanity-checking.
+# Should complete in < 5 minutes on a CPU.  total_frames must be divisible by
+# the env horizon; 2000 / 20 = 100 episodes for tabular (sufficient for a
+# learning trend), 2500 / 50 = 50 episodes for continuous.
+cells: [1, 3, 6]
 envs:
   - tabular-sepsis-v0
-  - continuous-ward-v0
 algorithms:
-  - ppo
-  - ddpg
+  - dqn
+  - cql
 behaviours:
   - uniform
-  - reward_misaligned
-seeds: [0,1]
-total_frames: 200
-n_checkpoints_train: 5
+  - reward_aligned
+seeds: [0, 1]
+total_frames: 2000
+n_checkpoints_train: 10
 n_checkpoints_eval: 5
 env_horizons:
   tabular-sepsis-v0: 20
   continuous-ward-v0: 50
+offline_transitions: 5000
+offline_updates: 500
+alpha_conf: 0.0

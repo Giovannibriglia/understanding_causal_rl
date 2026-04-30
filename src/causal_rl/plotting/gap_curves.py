@@ -59,7 +59,7 @@ def make_gap_curves(results_dir: Path, output_dir: Path, env_prefix: str | None 
             ys = np.array([v[1] for v in vals_sorted], dtype=np.float64)
             by_cell_label[(cell, label)][col][seed] = (xs, ys)
 
-    from causal_rl.plotting.colors import get_style, parse_algo_beh_from_label
+    from causal_rl.plotting.colors import get_color, get_linestyle, parse_algo_beh_from_label
 
     for cell in range(1, 9):
         fig, axes = plt.subplots(2, 2, figsize=(6.75, 4.8), sharex=True)
@@ -83,14 +83,13 @@ def make_gap_curves(results_dir: Path, output_dir: Path, env_prefix: str | None 
                 median = np.median(mat, axis=0)
                 q25 = np.percentile(mat, 25, axis=0)
                 q75 = np.percentile(mat, 75, axis=0)
-                algo, beh = parse_algo_beh_from_label(label)
-                style = get_style(algo, beh)
+                algo_l, beh_l = parse_algo_beh_from_label(label)
                 (line,) = ax.plot(
                     x,
                     median,
                     label=label,
-                    color=style.get("color"),
-                    linestyle=style.get("linestyle"),
+                    color=get_color(algo_l, beh_l),
+                    linestyle=get_linestyle(algo_l, beh_l),
                 )
                 ax.fill_between(x, q25, q75, alpha=0.2, color=line.get_color())
             ax.set_ylabel(ylabel)

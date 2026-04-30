@@ -18,7 +18,7 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
     if env_prefix is not None:
         rows = [r for r in rows if str(r.get("env_name", "")).startswith(env_prefix)]
     fig, axes = plt.subplots(2, 4, figsize=(10.0, 4.5), sharex=True, sharey=True)
-    from causal_rl.plotting.colors import get_style
+    from causal_rl.plotting.colors import get_color, get_linestyle, get_marker
 
     combos_all = []
     seen = set()
@@ -35,8 +35,8 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
     for cell in range(1, 9):
         ax = axes[(cell - 1) // 4, (cell - 1) % 4]
         cell_rows = [r for r in rows if r.get("cell") == str(cell)]
-        # group rows by (algo,beh) and pick the row with largest step (final checkpoint) as representative
-        combo_map = {}
+        # group rows by (algo,beh); pick the row with the largest step as representative
+        combo_map: dict[tuple[str, str], dict[str, str]] = {}
         for r in cell_rows:
             try:
                 algo = str(r.get("algorithm", "")).strip()
@@ -56,11 +56,11 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
                 y = float(r["eval_return_mean"])
             except (ValueError, KeyError):
                 continue
-            style = get_style(algo, beh)
-            marker = style.get("marker") if style.get("marker") is not None else "o"
-            ax.scatter(x, y, s=40, color=style.get("color"), marker=marker, edgecolor="k", linewidth=0.2)
+            color = get_color(algo, beh)
+            marker = get_marker(algo, beh) or "o"
+            ax.scatter(x, y, s=40, color=color, marker=marker, edgecolor="k", linewidth=0.2)
             if idx % 4 == 0:
-                ax.plot([x, x], [y - 0.02, y + 0.02], linewidth=0.6, color=style.get("color"))
+                ax.plot([x, x], [y - 0.02, y + 0.02], linewidth=0.6, color=color)
         ax.set_title(f"Cell {cell}")
 
     # create a legend for algorithm+behaviour mapping using all observed combos
@@ -69,15 +69,31 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
     handles = []
     labels = []
     for algo, beh in combos_all:
-        style = get_style(algo, beh)
-        marker = style.get("marker") if style.get("marker") is not None else "o"
-        ln = Line2D([0], [0], color=style.get("color"), marker=marker, linestyle=style.get("linestyle"), markersize=6)
+        color = get_color(algo, beh)
+        marker = get_marker(algo, beh) or "o"
+        ls = get_linestyle(algo, beh)
+        ln = Line2D(
+            [0],
+            [0],
+            color=color,
+            marker=marker,
+            linestyle=ls,
+            markersize=6,
+        )
         label = f"{algo}" + (f" ({beh})" if beh else "")
         handles.append(ln)
         labels.append(label)
 
     if handles:
-        fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, -0.08), ncol=min(6, len(handles)), frameon=False, fontsize=8)
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.08),
+            ncol=min(6, len(handles)),
+            frameon=False,
+            fontsize=8,
+        )
 
     axes[1, 0].set_xlabel(r"$\widehat{\Delta}_{\mathrm{TV}}$")
     axes[1, 1].set_xlabel(r"$\widehat{\Delta}_{\mathrm{TV}}$")

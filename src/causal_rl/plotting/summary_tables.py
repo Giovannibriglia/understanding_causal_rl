@@ -44,8 +44,10 @@ def make_summary_tables(results_dir: Path, output_dir: Path, env_prefix: str | N
     lines.append(r"\begin{tabular}{rllllrrrrrr}")
     lines.append(r"\toprule")
     lines.append(
-        r"Cell & Env & Algorithm & Behaviour & $R_{\mathrm{eval}}$ & $R_{\mathrm{holdout}}$ & "
-        r"$\Delta\_{\mathrm{TV}}$ & $\Delta\_{\mathrm{KL}}$ & $\Delta\_{\chi^2}$ & $\Delta_{\sup}$ \\"
+        r"Cell & Env & Algorithm & Behaviour"
+        r" & $R_{\mathrm{eval}}$ & $R_{\mathrm{holdout}}$"
+        r" & $\Delta\_{\mathrm{TV}}$ & $\Delta\_{\mathrm{KL}}$"
+        r" & $\Delta\_{\chi^2}$ & $\Delta_{\sup}$ \\"
     )
     lines.append(r"\midrule")
     for group_key in sorted(grouped.keys()):

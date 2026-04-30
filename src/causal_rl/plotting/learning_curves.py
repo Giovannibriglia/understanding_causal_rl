@@ -4,7 +4,6 @@ import csv
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,7 +35,7 @@ def _collect_rows(results_dir: Path, csv_name: str) -> list[dict[str, str | int]
 
 def _rolling_mean(y: np.ndarray, window: int) -> np.ndarray:
     if window <= 1 or y.size == 0:
-        return cast(np.ndarray, y.copy())
+        return y.copy()  # type: ignore[no-any-return]
     csum = np.cumsum(np.insert(y, 0, 0.0))
     out = np.empty_like(y)
     for i in range(y.size):
@@ -82,7 +81,9 @@ def _plot_panel(
 ) -> None:
     from causal_rl.plotting.colors import get_style
 
-    for (c, algo, behaviour), run_series in sorted(by_algo.items(), key=lambda x: (x[0][1], x[0][2])):
+    for (c, algo, behaviour), run_series in sorted(
+        by_algo.items(), key=lambda x: (x[0][1], x[0][2])
+    ):
         if c != cell or not run_series:
             continue
         step_sets = [set(x.tolist()) for x, _ in run_series]
@@ -100,7 +101,9 @@ def _plot_panel(
         q75 = np.percentile(mat, 75, axis=0)
         label = f"{algo}" + (f" ({behaviour})" if behaviour else "")
         style = get_style(algo, behaviour)
-        (line,) = ax.plot(x, median, label=label, color=style.get("color"), linestyle=style.get("linestyle"))
+        (line,) = ax.plot(
+            x, median, label=label, color=style.get("color"), linestyle=style.get("linestyle")
+        )
         ax.fill_between(x, q25, q75, alpha=0.2, color=line.get_color())
     ax.set_ylabel(ylabel)
     if ax.lines:
@@ -127,7 +130,9 @@ def _oracle_curve(
     return steps, vals
 
 
-def make_learning_curves(results_dir: Path, output_dir: Path, env_prefix: str | None = None) -> None:
+def make_learning_curves(
+    results_dir: Path, output_dir: Path, env_prefix: str | None = None
+) -> None:
     apply_style()
     output_dir.mkdir(parents=True, exist_ok=True)
     train_rows = _collect_rows(results_dir, "train.csv")
