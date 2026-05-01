@@ -27,6 +27,12 @@ jobs:
         run: mypy --strict src/
       - name: Run tests
         run: pytest --cov=src tests/
+      - name: Smoke run
+        run: |
+          python scripts/run_full_matrix.py --config smoke --quick --device cpu --seeds 0
+          python scripts/make_all_figures.py --results results/smoke_*/
+          test -f outputs/smoke_*/headline_regression_table.csv
+          test -f outputs/smoke_*/tabular/identifiability_panel.pdf
       - name: Build docs
         run: |
           python -m sphinx -b html docs docs/_build/html
