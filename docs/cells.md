@@ -1,23 +1,10 @@
-# Eight Cells
+# Four cells
 
-Each cell corresponds to a tuple `(expose_Z, expose_U, pi_b_known, on_policy)`:
+| cell | shorthand | expose_Z | pi_b_known | typical id_status |
+| --- | --- | --- | --- | --- |
+| 1 | `mdp_known` | True | True | `id` |
+| 2 | `mdp_unknown` | True | False | `id` (no confounder) / `partial_id` (with confounder) |
+| 3 | `pomdp_known` | False | True | `partial_id` |
+| 4 | `pomdp_unknown` | False | False | `partial_id` (no confounder) / `non_id` (with confounder) |
 
-1. `(1,0,1,1)` fully observed on-policy baseline.
-2. `(0,0,1,1)` hidden mediators in on-policy data.
-3. `(1,0,1,0)` perfect offline archive.
-4. `(0,0,1,0)` hidden mediators offline, known behaviour.
-5. `(1,0,0,0)` behaviour unknown offline.
-6. `(0,0,0,0)` hidden mediators + unknown behaviour.
-7. `(1,1,0,0)` latent confounding in offline data.
-8. `(0,1,0,0)` hidden mediators + latent confounding.
-
-Worked examples:
-
-- Cell 1: PPO on tabular sepsis with uniform behaviour gives near-zero TV gap under long training.
-- Cell 2: Same setup but hidden `Z` increases generalisation gap.
-- Cell 3: CQL with known `pi_b` converges with low bias.
-- Cell 4: CQL must compensate for hidden `Z`; TV gap rises.
-- Cell 5: Unknown `pi_b` weakens off-policy correction.
-- Cell 6: Unknown `pi_b` and hidden `Z` compound errors.
-- Cell 7: Latent `U` drives action selection and confounding-aware methods become necessary.
-- Cell 8: Hardest regime with both hidden mediators and latent confounding.
+`expose_U` and on/off-policy are runtime knobs, not cell axes.
