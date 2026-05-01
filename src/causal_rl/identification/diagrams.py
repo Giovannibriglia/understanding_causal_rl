@@ -72,9 +72,9 @@ def _make_diagram(expose_z: bool, pi_b_known: bool) -> CausalDiagram:
 
 # Pre-built diagrams indexed by cell number (same structural SCM for both envs).
 _DIAGRAMS: dict[int, CausalDiagram] = {
-    1: _make_diagram(expose_z=True, pi_b_known=True),    # C1: mdp_known
-    2: _make_diagram(expose_z=True, pi_b_known=False),   # C2: mdp_unknown
-    3: _make_diagram(expose_z=False, pi_b_known=True),   # C3: pomdp_known
+    1: _make_diagram(expose_z=True, pi_b_known=True),  # C1: mdp_known
+    2: _make_diagram(expose_z=True, pi_b_known=False),  # C2: mdp_unknown
+    3: _make_diagram(expose_z=False, pi_b_known=True),  # C3: pomdp_known
     4: _make_diagram(expose_z=False, pi_b_known=False),  # C4: pomdp_unknown
 }
 

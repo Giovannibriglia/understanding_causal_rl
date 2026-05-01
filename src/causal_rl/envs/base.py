@@ -12,6 +12,7 @@ class CausalEnv(abc.ABC):
     is_discrete_action: bool
     horizon: int
     gamma: float
+    n_envs: int
 
     @abc.abstractmethod
     def reset(self, seed: int | None = None) -> tuple[Tensor, dict[str, Tensor]]: ...

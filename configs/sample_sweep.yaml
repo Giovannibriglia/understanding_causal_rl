@@ -1,0 +1,20 @@
+# Sample-size sweep: vary offline_transitions to show identifiability floor.
+# For Phase D of the v3 brief. Run separately for each offline_transitions value.
+cells: [1, 2, 3, 4]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - cql
+behaviours:
+  - reward_aligned
+seeds: [0, 1, 2, 3, 4]
+total_frames: 2000
+n_checkpoints_train: 10
+n_checkpoints_eval: 5
+env_horizons:
+  tabular-sepsis-v0: 20
+  continuous-ward-v0: 50
+offline_transitions: 25000
+offline_updates: 500
+alpha_conf: 2.0
+n_envs: 128

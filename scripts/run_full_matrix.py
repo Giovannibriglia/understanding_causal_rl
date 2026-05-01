@@ -154,8 +154,12 @@ def main() -> None:
                             str(50 if args.quick else matrix.offline_updates),
                             "--alpha-conf",
                             str(matrix.alpha_conf),
+                            "--n-envs",
+                            str(8 if args.quick else matrix.n_envs),
                         ]
                     )
+                    if matrix.eval_n_envs is not None:
+                        cmd.extend(["--eval-n-envs", str(matrix.eval_n_envs)])
                     if args.device is not None:
                         cmd.extend(["--device", args.device])
                     subprocess.run(cmd, check=True)

@@ -1,11 +1,9 @@
 # Full factorial campaign: main paper-scale experiments.
-# See configs/paper.yaml for the canonical paper run (200k/500k frames).
-# See configs/smoke.yaml for the CI smoke test (2000 frames).
+# See configs/paper.yaml for the canonical paper run.
+# See configs/smoke.yaml for the CI smoke test.
 #
-# total_frames here is per-env: must be divisible by env horizon.
-#   tabular-sepsis-v0: 200000 / 20 = 10000 episodes of horizon 20
-#   continuous-ward-v0: 500000 / 50 = 10000 episodes of horizon 50
-cells: [1, 2, 3, 4, 5, 6, 7, 8]
+# total_frames: number of batched ticks. Actual transitions = total_frames * n_envs.
+cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
   - continuous-ward-v0
@@ -23,9 +21,7 @@ behaviours:
   - information
   - curiosity
 seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-total_frames:
-  tabular-sepsis-v0: 200000
-  continuous-ward-v0: 500000
+total_frames: 200000
 n_checkpoints_train: 100
 n_checkpoints_eval: 50
 env_horizons:
@@ -34,3 +30,4 @@ env_horizons:
 offline_transitions: 200000
 offline_updates: 10000
 alpha_conf: 2.0
+n_envs: 256
