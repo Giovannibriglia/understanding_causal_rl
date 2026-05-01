@@ -34,7 +34,7 @@ Flips the information objective to prefer low-entropy transitions:
 \[
 \pi_b(a \mid s) \propto \exp(-\gamma \cdot H(\hat P(S' \mid S=s, A=a))).
 \]
-This reduces action coverage and typically worsens offline generalisation.
+This reduces action coverage and typically worsens offline robustness.
 
 ## Curiosity (Family 3)
 
