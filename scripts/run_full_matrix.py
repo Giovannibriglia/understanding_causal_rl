@@ -102,7 +102,9 @@ def main() -> None:
     print(f"Plots and tables will be saved to: {base_outputs}")
 
     manifest = base_results / "manifest.csv"
-    total_runs = len(seeds) * len(runs)
+    alpha_confs = matrix.alpha_conf_sweep if matrix.alpha_conf_sweep else [matrix.alpha_conf]
+    total_runs = len(seeds) * len(runs) * len(alpha_confs)
+    commands_log = base_results / "commands.log"
     with manifest.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f, fieldnames=["seed", "cell", "env", "algorithm", "behaviour", "output_path"]
@@ -110,20 +112,23 @@ def main() -> None:
         writer.writeheader()
         with tqdm(total=total_runs, desc="Experiments", unit="run") as pbar:
             for seed in seeds:
-                for cell, env, algo, beh in runs:
-                    horizon = matrix.env_horizons.get(env)
-                    if horizon is None:
-                        raise ValueError(f"Missing env_horizons entry for env: {env}")
-                    pbar.set_postfix(
-                        seed=seed,
-                        cell=cell,
-                        env=env,
-                        algo=algo,
-                        beh=beh,
-                        refresh=False,
-                    )
-                    run_dir = base_results / f"cell{cell}_{env}_{algo}_{beh}_seed{seed}"
-                    cmd = [
+                for alpha_conf in alpha_confs:
+                    for cell, env, algo, beh in runs:
+                        horizon = matrix.env_horizons.get(env)
+                        if horizon is None:
+                            raise ValueError(f"Missing env_horizons entry for env: {env}")
+                        pbar.set_postfix(
+                            seed=seed,
+                            cell=cell,
+                            env=env,
+                            algo=algo,
+                            beh=beh,
+                            refresh=False,
+                        )
+                        run_dir = base_results / (
+                            f"cell{cell}_{env}_{algo}_{beh}_seed{seed}_alpha{alpha_conf}"
+                        )
+                        cmd = [
                         sys.executable,
                         "scripts/run_single.py",
                         "--cell",
@@ -145,35 +150,37 @@ def main() -> None:
                         "--output",
                         str(run_dir),
                     ]
-                    cmd.extend(["--rollout-horizon", str(horizon), "--horizon", str(horizon)])
-                    cmd.extend(
-                        [
+                        cmd.extend(["--rollout-horizon", str(horizon), "--horizon", str(horizon)])
+                        cmd.extend(
+                            [
                             "--offline-transitions",
                             str(100 if args.quick else matrix.offline_transitions),
                             "--offline-updates",
                             str(50 if args.quick else matrix.offline_updates),
                             "--alpha-conf",
-                            str(matrix.alpha_conf),
+                            str(alpha_conf),
                             "--n-envs",
                             str(8 if args.quick else matrix.n_envs),
-                        ]
-                    )
-                    if matrix.eval_n_envs is not None:
-                        cmd.extend(["--eval-n-envs", str(matrix.eval_n_envs)])
-                    if args.device is not None:
-                        cmd.extend(["--device", args.device])
-                    subprocess.run(cmd, check=True)
-                    writer.writerow(
-                        {
+                            ]
+                        )
+                        if matrix.eval_n_envs is not None:
+                            cmd.extend(["--eval-n-envs", str(matrix.eval_n_envs)])
+                        if args.device is not None:
+                            cmd.extend(["--device", args.device])
+                        with commands_log.open("a", encoding="utf-8") as clog:
+                            clog.write(" ".join(cmd) + "\n")
+                        subprocess.run(cmd, check=True)
+                        writer.writerow(
+                            {
                             "seed": seed,
                             "cell": cell,
                             "env": env,
                             "algorithm": algo,
                             "behaviour": beh,
                             "output_path": str(run_dir),
-                        }
-                    )
-                    pbar.update(1)
+                            }
+                        )
+                        pbar.update(1)
 
 
 if __name__ == "__main__":
