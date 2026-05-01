@@ -59,3 +59,19 @@ EVAL_COLUMNS = [
     "eval_oracle_return_mean",
     "eval_oracle_return_std",
 ]
+
+PERTURBED_COLUMNS = [
+    "step",
+    "episode",
+    "wall_time",
+    "cell",
+    "env_name",
+    "algorithm",
+    "behaviour_policy",
+    "seed",
+    "eps_T",
+    "eps_R",
+    "eval_perturbed_return_mean",
+    "eval_perturbed_return_std",
+    "D_env_KS",
+]

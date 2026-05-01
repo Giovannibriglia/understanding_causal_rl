@@ -17,14 +17,21 @@ from causal_rl.behaviour.registry import make as make_behaviour
 from causal_rl.envs.base import CausalEnv
 from causal_rl.envs.cell_config import CELL_CONFIGS
 from causal_rl.envs.continuous_ward import ContinuousWardEnv
+from causal_rl.envs.perturbations import (
+    TABULAR_DIAGONAL,
+    PerturbationSpec,
+    perturb_tabular_rewards,
+    perturb_tabular_transition,
+)
 from causal_rl.envs.registry import ENVS
 from causal_rl.envs.registry import make as make_env
 from causal_rl.envs.tabular_sepsis import TabularSepsisEnv
 from causal_rl.identification.id_oracle import get_id_status
+from causal_rl.metrics.d_env import d_env_ks
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
 from causal_rl.runner.collector import collect_offline_dataset
 from causal_rl.runner.csv_logger import CSVLogger
-from causal_rl.runner.schemas import EVAL_COLUMNS, TRAIN_COLUMNS
+from causal_rl.runner.schemas import EVAL_COLUMNS, PERTURBED_COLUMNS, TRAIN_COLUMNS
 from causal_rl.utils.device import get_device
 from causal_rl.utils.git import get_git_commit
 from causal_rl.utils.seeding import set_seed
@@ -52,6 +59,7 @@ class RunnerConfig:
     eval_n_envs: int | None = None
     n_bootstrap: int = 200
     n_samples_gap: int = 200
+    n_eval_episodes: int = 5
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
 
@@ -66,6 +74,7 @@ class BenchmarkRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.train_logger = CSVLogger(self.output_dir / "train.csv", TRAIN_COLUMNS)
         self.eval_logger = CSVLogger(self.output_dir / "eval.csv", EVAL_COLUMNS)
+        self.perturbed_logger = CSVLogger(self.output_dir / "eval_perturbed.csv", PERTURBED_COLUMNS)
 
         self.env = self._make_env_instance()
         self.env_spec = ENVS[config.env_name]
@@ -473,6 +482,85 @@ class BenchmarkRunner:
             if cuda_rng_state is not None:
                 torch.cuda.set_rng_state_all(cuda_rng_state)
 
+    def _make_perturbed_env(self, spec: PerturbationSpec) -> CausalEnv:
+        """Return a copy of the eval env with transition/rewards perturbed by spec."""
+        env = self._make_eval_env_instance()
+        if isinstance(env, TabularSepsisEnv):
+            env.transition = perturb_tabular_transition(env.transition, spec.eps_T)
+            env.reward_probs = perturb_tabular_rewards(env.reward_probs, spec.eps_R)
+        return env
+
+    def _evaluate_perturbations(self, step: int, episode: int, seed: int) -> None:
+        """Run closed-loop evaluation across TABULAR_DIAGONAL perturbation levels."""
+        if not isinstance(self.env, TabularSepsisEnv):
+            return
+
+        cpu_rng_state = torch.get_rng_state()
+        cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        try:
+            for spec in TABULAR_DIAGONAL:
+                all_returns: list[float] = []
+                for ep in range(self.config.n_eval_episodes):
+                    perturbed_env = self._make_perturbed_env(spec)
+                    try:
+                        with torch.no_grad():
+                            ep_seed = seed + ep * 1000
+                            obs, _ = perturbed_env.reset(seed=ep_seed)
+                            rets = torch.zeros((self._eval_n_envs,), device=self.device)
+                            for _ in range(perturbed_env.horizon):
+                                act, _ = self.algo.select_action(obs, deterministic=True)
+                                obs, reward, terminated, truncated, _ = perturbed_env.step(act)
+                                rets += reward
+                                if bool(torch.all(terminated | truncated)):
+                                    break
+                            all_returns.extend(rets.tolist())
+                    finally:
+                        perturbed_env.close()
+
+                ret_tensor = torch.tensor(all_returns)
+
+                # Compute D_env_KS for this perturbation level.
+                train_env_for_ks = self._make_eval_env_instance()
+                target_env_for_ks = self._make_perturbed_env(spec)
+                try:
+                    _tenv = train_env_for_ks
+
+                    def oracle_fn(obs: torch.Tensor, _e: CausalEnv = _tenv) -> torch.Tensor:
+                        return self._oracle_action(_e, obs)
+
+                    ks_val = d_env_ks(
+                        train_env_for_ks,
+                        target_env_for_ks,
+                        oracle_fn,
+                        n_states=self._eval_n_envs,
+                        n_samples=50,
+                    )
+                finally:
+                    train_env_for_ks.close()
+                    target_env_for_ks.close()
+
+                self.perturbed_logger.write(
+                    {
+                        "step": step,
+                        "episode": episode,
+                        "wall_time": time.time(),
+                        "cell": self.config.cell,
+                        "env_name": self.config.env_name,
+                        "algorithm": self.config.algorithm,
+                        "behaviour_policy": self.config.behaviour,
+                        "seed": self.config.seed,
+                        "eps_T": spec.eps_T,
+                        "eps_R": spec.eps_R,
+                        "eval_perturbed_return_mean": float(ret_tensor.mean().item()),
+                        "eval_perturbed_return_std": float(ret_tensor.std().item()),
+                        "D_env_KS": ks_val,
+                    }
+                )
+        finally:
+            torch.set_rng_state(cpu_rng_state)
+            if cuda_rng_state is not None:
+                torch.cuda.set_rng_state_all(cuda_rng_state)
+
     def run(self) -> None:
         if ALGOS[self.config.algorithm].kind == "off_policy":
             self._run_offline()
@@ -580,6 +668,11 @@ class BenchmarkRunner:
                     oracle_returns=oracle_returns,
                     metrics=gap_metrics,
                 )
+                self._evaluate_perturbations(
+                    step=tick,
+                    episode=episode,
+                    seed=self.config.seed + tick + 60_000,
+                )
 
     def _run_offline(self) -> None:
         obs, info = self.env.reset(seed=self.config.seed)
@@ -646,4 +739,9 @@ class BenchmarkRunner:
                     holdout_returns=holdout_returns,
                     oracle_returns=oracle_returns,
                     metrics=gap_metrics,
+                )
+                self._evaluate_perturbations(
+                    step=step,
+                    episode=episode,
+                    seed=self.config.seed + step + 60_000,
                 )

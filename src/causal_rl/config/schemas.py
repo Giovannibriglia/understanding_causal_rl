@@ -38,6 +38,7 @@ class RunConfigModel(BaseModel):
     batch_size: int = 64
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
+    n_eval_episodes: int = 5
     env_overrides: EnvOverrides = Field(default_factory=EnvOverrides)
     algo_overrides: AlgoOverrides = Field(default_factory=AlgoOverrides)
 
@@ -58,6 +59,7 @@ class MatrixConfig(BaseModel):
     alpha_conf: float = 0.0
     n_envs: int = 64
     eval_n_envs: int | None = None
+    n_eval_episodes: int = 5
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
