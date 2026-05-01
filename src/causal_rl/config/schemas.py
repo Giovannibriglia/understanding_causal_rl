@@ -56,8 +56,10 @@ class MatrixConfig(BaseModel):
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
     alpha_conf: float = 0.0
+    alpha_conf_sweep: list[float] = Field(default_factory=list)
     n_envs: int = 64
     eval_n_envs: int | None = None
+    eval_perturbations: str = "default"
 
 
 def load_yaml(path: Path) -> dict[str, Any]:

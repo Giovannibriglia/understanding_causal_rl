@@ -5,6 +5,7 @@ from torch import Tensor
 
 from causal_rl.envs.base import CausalEnv
 from causal_rl.envs.cell_config import CELL_CONFIGS
+from causal_rl.envs.perturbations import PerturbationSpec
 from causal_rl.utils.device import get_device
 
 
@@ -119,38 +120,38 @@ class ContinuousWardEnv(CausalEnv):
         rewards = self._reward(next_state, reps_action)
         return rewards.view(self.n_envs, self.mc_k)
 
-    def sample_interventional(self, action: Tensor, n: int) -> Tensor:
+    def sample_interventional(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples from P(R | do(A=a), current state).
 
         Marginalises over Z when Z is not exposed; conditions on current Z
         when Z is exposed.  Returns shape (n_envs, n).
         """
-        a = action.to(torch.float32).view(self.n_envs, 3).clamp(0.0, 1.0)
+        state_in = self.state if state is None else state
+        state_in = state_in.to(torch.float32).view(-1, self.state_dim).clamp(0.0, 1.0)
+        batch = state_in.shape[0]
+        a = action.to(torch.float32).view(batch, 3).clamp(0.0, 1.0)
         reps_action = a.repeat_interleave(n, dim=0)
 
         if self.config.expose_z:
             # Condition on current (Z, U).
-            reps_state = self.state.repeat_interleave(n, dim=0)
-            reps_z = self.latent_z.repeat_interleave(n, dim=0)
-            reps_u = self.latent_u.repeat_interleave(n, dim=0)
+            reps_state = state_in.repeat_interleave(n, dim=0)
+            reps_z = self.latent_z[:batch].repeat_interleave(n, dim=0)
+            reps_u = self.latent_u[:batch].repeat_interleave(n, dim=0)
         else:
             # Marginalise over Z by resampling it from its prior U[0,1]^z_dim.
-            reps_state = self.state.repeat_interleave(n, dim=0)
-            reps_z = torch.rand(
-                (self.n_envs * n, self.z_dim), device=self.device, dtype=torch.float32
-            )
+            reps_state = state_in.repeat_interleave(n, dim=0)
+            reps_z = torch.rand((batch * n, self.z_dim), device=self.device, dtype=torch.float32)
             reps_u = (
-                torch.randn((self.n_envs * n, self.u_dim), device=self.device, dtype=torch.float32)
-                * 0.25
+                torch.randn((batch * n, self.u_dim), device=self.device, dtype=torch.float32) * 0.25
             )
 
         drift = self._drift(reps_state, reps_action, reps_z, reps_u)
         noise = self.sigma * torch.randn_like(reps_state)
         next_state = (reps_state + self.dt * drift + noise).clamp(0.0, 1.0)
         rewards = self._reward(next_state, reps_action)
-        return rewards.view(self.n_envs, n)
+        return rewards.view(batch, n)
 
-    def sample_observational(self, action: Tensor, n: int) -> Tensor:
+    def sample_observational(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples from P(R | A=a, current observable state).
 
         When alpha_conf=0, this equals sample_interventional.  When alpha_conf>0
@@ -162,26 +163,28 @@ class ContinuousWardEnv(CausalEnv):
         bounded; returns shape (n_envs, n).
         """
         if self.alpha_conf <= 0.0:
-            return self.sample_interventional(action, n)
+            return self.sample_interventional(state, action, n)
 
-        a = action.to(torch.float32).view(self.n_envs, 3).clamp(0.0, 1.0)
+        state_in = state.to(torch.float32).view(-1, self.state_dim).clamp(0.0, 1.0)
+        batch = state_in.shape[0]
+        a = action.to(torch.float32).view(batch, 3).clamp(0.0, 1.0)
         # Draw more candidates than needed for rejection sampling.
         n_cand = max(n * 8, n + 32)
         reps_action = a.repeat_interleave(n_cand, dim=0)
-        reps_state = self.state.repeat_interleave(n_cand, dim=0)
+        reps_state = state_in.repeat_interleave(n_cand, dim=0)
         # Resample Z and U from prior.
         reps_z = torch.rand(
-            (self.n_envs * n_cand, self.z_dim), device=self.device, dtype=torch.float32
+            (batch * n_cand, self.z_dim), device=self.device, dtype=torch.float32
         )
         reps_u = (
-            torch.randn((self.n_envs * n_cand, self.u_dim), device=self.device, dtype=torch.float32)
+            torch.randn((batch * n_cand, self.u_dim), device=self.device, dtype=torch.float32)
             * 0.25
         )
         drift = self._drift(reps_state, reps_action, reps_z, reps_u)
         noise = self.sigma * torch.randn_like(reps_state)
         next_state = (reps_state + self.dt * drift + noise).clamp(0.0, 1.0)
         rewards_flat = self._reward(next_state, reps_action)  # (n_envs*n_cand,)
-        rewards_mat = rewards_flat.view(self.n_envs, n_cand)  # (n_envs, n_cand)
+        rewards_mat = rewards_flat.view(batch, n_cand)  # (batch, n_cand)
 
         # Importance weights proportional to exp(alpha_conf * reward).
         log_w = self.alpha_conf * rewards_mat
@@ -207,3 +210,9 @@ class ContinuousWardEnv(CausalEnv):
 
     def close(self) -> None:
         return None
+
+    def apply_perturbation(self, spec: PerturbationSpec) -> None:
+        self.target_state = (self.target_state + spec.eps_target).clamp(0.0, 1.0)
+        scale = 1.0 + spec.eps_dynamics
+        self.dt = float(self.dt * scale)
+        self.sigma = float(self.sigma * scale)

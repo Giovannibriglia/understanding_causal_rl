@@ -154,3 +154,30 @@ def fit_propensity_model(
 
     model.eval()
     return model
+
+
+def expected_calibration_error(
+    predicted_log_probs: Tensor,
+    observed_actions: Tensor,
+    n_bins: int = 10,
+) -> Tensor:
+    """Compute ECE on a held-out split (80/20) from log-prob predictions."""
+    n = predicted_log_probs.shape[0]
+    if n < 2:
+        return torch.tensor(0.0, device=predicted_log_probs.device)
+    split = max(1, int(0.8 * n))
+    probs = torch.exp(predicted_log_probs[split:])
+    acts = observed_actions.view(-1).long()[split:]
+    conf, pred = probs.max(dim=-1)
+    correct = (pred == acts).float()
+    edges = torch.linspace(0.0, 1.0, n_bins + 1, device=probs.device)
+    ece = torch.tensor(0.0, device=probs.device)
+    m = conf.shape[0]
+    for i in range(n_bins):
+        lo, hi = edges[i], edges[i + 1]
+        mask = (conf >= lo) & (conf < hi if i < n_bins - 1 else conf <= hi)
+        if mask.any():
+            acc = correct[mask].mean()
+            c = conf[mask].mean()
+            ece = ece + (mask.float().mean()) * (acc - c).abs()
+    return ece if m > 0 else torch.tensor(0.0, device=probs.device)

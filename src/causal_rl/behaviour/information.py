@@ -16,8 +16,10 @@ class InformationExplorer(BiasedExplorer):
         n_actions: int | None = None,
         act_dim: int | None = None,
         gamma_info: float = 1.0,
+        bias_strength: float = 1.0,
         requires_latent: bool = False,
     ) -> None:
+        super().__init__(bias_strength=bias_strength)
         self.n_actions = n_actions
         self.act_dim = act_dim
         self.gamma_info = gamma_info
@@ -45,7 +47,9 @@ class InformationExplorer(BiasedExplorer):
                 )
             action = (base + 0.03 * torch.randn_like(base)).clamp(0.0, 1.0)
             log_prob = torch.zeros((obs.shape[0],), device=obs.device)
-            return action, log_prob
+            return self._mix_with_uniform(
+                obs, action, log_prob, n_actions=self.n_actions, act_dim=self.act_dim
+            )
         if self.n_actions is None:
             msg = "Either n_actions or act_dim must be provided."
             raise ValueError(msg)
@@ -58,4 +62,6 @@ class InformationExplorer(BiasedExplorer):
         logits = self.gamma_info * entropy_proxy
         dist = Categorical(logits=logits)
         action = dist.sample()
-        return action.unsqueeze(-1), dist.log_prob(action)
+        return self._mix_with_uniform(
+            obs, action.unsqueeze(-1), dist.log_prob(action), n_actions=self.n_actions
+        )

@@ -10,11 +10,16 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from causal_rl.plotting.ablations import make_ablations  # noqa: E402
+from causal_rl.plotting.bandit_regret import make_bandit_regret  # noqa: E402
+from causal_rl.plotting.bias_sweep import make_bias_sweep  # noqa: E402
+from causal_rl.plotting.bound_width_panel import make_bound_width_panel  # noqa: E402
 from causal_rl.plotting.cell_grid import make_cell_grid  # noqa: E402
 from causal_rl.plotting.gap_curves import make_gap_curves  # noqa: E402
+from causal_rl.plotting.headline_regression import make_headline_regression  # noqa: E402
 from causal_rl.plotting.headline_scatter import make_headline_scatter  # noqa: E402
 from causal_rl.plotting.identifiability_panel import make_identifiability_panel  # noqa: E402
 from causal_rl.plotting.learning_curves import make_learning_curves  # noqa: E402
+from causal_rl.plotting.sample_sweep import make_sample_sweep  # noqa: E402
 from causal_rl.plotting.summary_tables import make_summary_tables  # noqa: E402
 
 
@@ -44,6 +49,11 @@ def main() -> None:
         make_cell_grid(args.results, out, env_prefix=prefix)
         make_ablations(args.results, out, env_prefix=prefix)
         make_summary_tables(args.results, out, env_prefix=prefix)
+        make_bias_sweep(args.results, out)
+        make_sample_sweep(args.results, out)
+        make_bound_width_panel(args.results, out)
+    make_bandit_regret(args.results, base_output)
+    make_headline_regression(args.results, base_output)
 
 
 if __name__ == "__main__":

@@ -16,8 +16,10 @@ class CuriosityExplorer(BiasedExplorer):
         n_actions: int | None = None,
         act_dim: int | None = None,
         delta: float = 1.0,
+        bias_strength: float = 1.0,
         requires_latent: bool = False,
     ) -> None:
+        super().__init__(bias_strength=bias_strength)
         self.n_actions = n_actions
         self.act_dim = act_dim
         self.delta = delta
@@ -54,7 +56,9 @@ class CuriosityExplorer(BiasedExplorer):
                 batch_center = state_slice.detach().mean(dim=0).to(torch.float32).cpu()
                 self._running_center = 0.9 * self._running_center + 0.1 * batch_center
             log_prob = torch.zeros((obs.shape[0],), device=obs.device)
-            return action, log_prob
+            return self._mix_with_uniform(
+                obs, action, log_prob, n_actions=self.n_actions, act_dim=self.act_dim
+            )
         if self.n_actions is None:
             msg = "Either n_actions or act_dim must be provided."
             raise ValueError(msg)
@@ -68,4 +72,6 @@ class CuriosityExplorer(BiasedExplorer):
         with torch.no_grad():
             hist = torch.bincount(action, minlength=self.n_actions).to(torch.float32)
             self._counts = self._counts + hist.cpu()
-        return action.unsqueeze(-1), dist.log_prob(action)
+        return self._mix_with_uniform(
+            obs, action.unsqueeze(-1), dist.log_prob(action), n_actions=self.n_actions
+        )

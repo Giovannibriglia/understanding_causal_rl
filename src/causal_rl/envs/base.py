@@ -29,7 +29,7 @@ class CausalEnv(abc.ABC):
     @abc.abstractmethod
     def close(self) -> None: ...
 
-    def sample_interventional(self, action: Tensor, n: int) -> Tensor:
+    def sample_interventional(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples per env from P(R | do(A=a), current observable state).
 
         For discrete envs returns shape (n_envs, n) with values in {-1, +1}.
@@ -38,7 +38,7 @@ class CausalEnv(abc.ABC):
         """
         raise NotImplementedError
 
-    def sample_observational(self, action: Tensor, n: int) -> Tensor:
+    def sample_observational(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples per env from P(R | A=a, current observable state).
 
         The observational distribution may differ from the interventional one when

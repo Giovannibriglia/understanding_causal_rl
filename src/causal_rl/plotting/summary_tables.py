@@ -45,7 +45,7 @@ def make_summary_tables(results_dir: Path, output_dir: Path, env_prefix: str | N
     lines.append(r"\toprule")
     lines.append(
         r"Cell & Env & Algorithm & Behaviour"
-        r" & $R_{\mathrm{eval}}$ & $R_{\mathrm{holdout}}$"
+        r" & $R_{\mathrm{eval}}$ & $R_{\mathrm{oracle}}$"
         r" & $\Delta\_{\mathrm{TV}}$ & $\Delta\_{\mathrm{KL}}$"
         r" & $\Delta\_{\chi^2}$ & $\Delta_{\sup}$ \\"
     )
@@ -55,7 +55,7 @@ def make_summary_tables(results_dir: Path, output_dir: Path, env_prefix: str | N
         vals = grouped[group_key]
         eval_r = np.array([float(v.get("eval_return_mean", "nan")) for v in vals], dtype=np.float64)
         hold_r = np.array(
-            [float(v.get("eval_holdout_return_mean", "nan")) for v in vals], dtype=np.float64
+            [float(v.get("eval_oracle_return_mean", "nan")) for v in vals], dtype=np.float64
         )
         tv = np.array([float(v.get("delta_tv", "nan")) for v in vals], dtype=np.float64)
         kl = np.array([float(v.get("delta_kl", "nan")) for v in vals], dtype=np.float64)

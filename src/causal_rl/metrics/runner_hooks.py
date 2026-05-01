@@ -121,8 +121,6 @@ def compute_gap_metrics(
       - Also reports KS distance between empirical CDFs.
       - Adds bootstrap 95% CI for MMD².
     """
-    del obs  # unused; env exposes state via internal attributes
-
     has_sampling = (
         hasattr(env, "sample_observational")
         and hasattr(env, "sample_interventional")
@@ -135,8 +133,8 @@ def compute_gap_metrics(
     # ------------------------------------------------------------------
     if env.is_discrete_action:
         if has_sampling:
-            obs_samp = env.sample_observational(action, n_samples)  # (batch, n)
-            do_samp = env.sample_interventional(action, n_samples)  # (batch, n)
+            obs_samp = env.sample_observational(obs, action, n_samples)  # (batch, n)
+            do_samp = env.sample_interventional(obs, action, n_samples)  # (batch, n)
 
             n = obs_samp.shape[-1]
             # Laplace-smoothed Bernoulli probabilities
@@ -196,8 +194,8 @@ def compute_gap_metrics(
     # Continuous path  (A.2: replace Gaussianised L1 with MMD² + KS)
     # ------------------------------------------------------------------
     if has_sampling:
-        obs_samp = env.sample_observational(action, n_samples)  # (batch, n)
-        do_samp = env.sample_interventional(action, n_samples)  # (batch, n)
+        obs_samp = env.sample_observational(obs, action, n_samples)  # (batch, n)
+        do_samp = env.sample_interventional(obs, action, n_samples)  # (batch, n)
     else:
         # Fallback: do_reward gives MC samples for interventional; use
         # observed_reward (single-sample) as a degenerate observational estimate.

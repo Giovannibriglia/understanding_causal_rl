@@ -21,10 +21,22 @@ from causal_rl.envs.registry import ENVS
 from causal_rl.envs.registry import make as make_env
 from causal_rl.envs.tabular_sepsis import TabularSepsisEnv
 from causal_rl.identification.id_oracle import get_id_status
+from causal_rl.identification.bounds import natural_bounds
+from causal_rl.metrics.coverage import (
+    PropensityModel,
+    effective_sample_size_ratio,
+    expected_calibration_error,
+    fit_propensity_model,
+    min_propensity,
+    support_overlap,
+    tail_mass_top_q,
+)
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
+from causal_rl.metrics.d_env import d_env_ks
 from causal_rl.runner.collector import collect_offline_dataset
 from causal_rl.runner.csv_logger import CSVLogger
-from causal_rl.runner.schemas import EVAL_COLUMNS, TRAIN_COLUMNS
+from causal_rl.runner.schemas import EVAL_COLUMNS, EVAL_PERTURBED_COLUMNS, TRAIN_COLUMNS
+from causal_rl.envs.perturbations import CONTINUOUS_DIAGONAL, TABULAR_DIAGONAL
 from causal_rl.utils.device import get_device
 from causal_rl.utils.git import get_git_commit
 from causal_rl.utils.seeding import set_seed
@@ -54,6 +66,7 @@ class RunnerConfig:
     n_samples_gap: int = 200
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
+    eval_perturbations: str = "default"
 
 
 class BenchmarkRunner:
@@ -66,6 +79,9 @@ class BenchmarkRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.train_logger = CSVLogger(self.output_dir / "train.csv", TRAIN_COLUMNS)
         self.eval_logger = CSVLogger(self.output_dir / "eval.csv", EVAL_COLUMNS)
+        self.eval_perturbed_logger = CSVLogger(
+            self.output_dir / "eval_perturbed.csv", EVAL_PERTURBED_COLUMNS
+        )
 
         self.env = self._make_env_instance()
         self.env_spec = ENVS[config.env_name]
@@ -126,6 +142,9 @@ class BenchmarkRunner:
         self._oracle_policy_by_steps_left: torch.Tensor | None = None
         # Cache for the latest gap metric so ConfoundedDQN can use it.
         self._last_gap_metrics: dict[str, float] = {"delta_tv": 0.0}
+        self._coverage_metrics: dict[str, float] = {}
+        self._bound_metrics: dict[str, float] = {}
+        self._propensity_calibration_ece: float = float("nan")
 
     def _move_algo_to_device(self) -> None:
         for value in vars(self.algo).values():
@@ -213,6 +232,11 @@ class BenchmarkRunner:
             "lr": metrics.get("lr", 0.0),
             "grad_norm": metrics.get("grad_norm", 0.0),
             "id_status": self.id_status,
+            "alpha_conf": self.config.alpha_conf,
+            "bias_strength": getattr(self.behaviour_policy, "bias_strength", 1.0),
+            "expose_z": self.cell_cfg.expose_z,
+            "pi_b_known": self.cell_cfg.pi_b_known,
+            "beh_depends_on_u": self.behaviour_policy.depends_on_u,
         }
         gap_keys = [
             "delta_tv",
@@ -230,6 +254,23 @@ class BenchmarkRunner:
         row["delta_tv_conditional"] = metrics.get(
             "delta_tv_conditional", metrics.get("delta_tv", 0.0)
         )
+        row["min_propensity"] = self._coverage_metrics.get("min_propensity", float("nan"))
+        row["ess_ratio"] = self._coverage_metrics.get("ess_ratio", float("nan"))
+        row["overlap_at_1e-2"] = self._coverage_metrics.get("overlap_at_1e-2", float("nan"))
+        row["tail_mass_top10pct"] = self._coverage_metrics.get("tail_mass_top10pct", float("nan"))
+        row["propensity_calibration_ece"] = self._propensity_calibration_ece
+        row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
+        row["bound_width_max"] = self._bound_metrics.get("bound_width_max", float("nan"))
+        row["n_arms_with_informative_bound"] = self._bound_metrics.get(
+            "n_arms_with_informative_bound", float("nan")
+        )
+        row["delta_tv_train_policy"] = metrics.get("delta_tv_train_policy", metrics.get("delta_tv", 0.0))
+        row["delta_tv_train_policy_ci_lo"] = metrics.get(
+            "delta_tv_train_policy_ci_lo", metrics.get("delta_tv_ci_lo", 0.0)
+        )
+        row["delta_tv_train_policy_ci_hi"] = metrics.get(
+            "delta_tv_train_policy_ci_hi", metrics.get("delta_tv_ci_hi", 0.0)
+        )
         self.train_logger.write(row)
 
     def _log_eval(
@@ -237,7 +278,6 @@ class BenchmarkRunner:
         step: int,
         episode: int,
         eval_returns: torch.Tensor,
-        holdout_returns: torch.Tensor,
         oracle_returns: torch.Tensor,
         metrics: dict[str, float],
     ) -> None:
@@ -253,8 +293,6 @@ class BenchmarkRunner:
             "seed": self.config.seed,
             "eval_return_mean": float(eval_returns.mean().item()),
             "eval_return_std": float(eval_returns.std().item()),
-            "eval_holdout_return_mean": float(holdout_returns.mean().item()),
-            "eval_holdout_return_std": float(holdout_returns.std().item()),
             "delta_tv": metrics.get("delta_tv", 0.0),
             "delta_tv_ci_lo": metrics.get("delta_tv_ci_lo", 0.0),
             "delta_tv_ci_hi": metrics.get("delta_tv_ci_hi", 0.0),
@@ -264,10 +302,54 @@ class BenchmarkRunner:
             "delta_mmd2": metrics.get("delta_mmd2", 0.0),
             "delta_ks": metrics.get("delta_ks", 0.0),
             "id_status": self.id_status,
+            "alpha_conf": self.config.alpha_conf,
+            "bias_strength": getattr(self.behaviour_policy, "bias_strength", 1.0),
+            "expose_z": self.cell_cfg.expose_z,
+            "pi_b_known": self.cell_cfg.pi_b_known,
+            "beh_depends_on_u": self.behaviour_policy.depends_on_u,
             "eval_oracle_return_mean": float(oracle_returns.mean().item()),
             "eval_oracle_return_std": float(oracle_returns.std().item()),
         }
+        row["min_propensity"] = self._coverage_metrics.get("min_propensity", float("nan"))
+        row["ess_ratio"] = self._coverage_metrics.get("ess_ratio", float("nan"))
+        row["overlap_at_1e-2"] = self._coverage_metrics.get("overlap_at_1e-2", float("nan"))
+        row["tail_mass_top10pct"] = self._coverage_metrics.get("tail_mass_top10pct", float("nan"))
+        row["propensity_calibration_ece"] = self._propensity_calibration_ece
+        row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
+        row["bound_width_max"] = self._bound_metrics.get("bound_width_max", float("nan"))
+        row["n_arms_with_informative_bound"] = self._bound_metrics.get(
+            "n_arms_with_informative_bound", float("nan")
+        )
         self.eval_logger.write(row)
+
+    def _compute_coverage_metrics(self, log_probs: torch.Tensor) -> None:
+        self._coverage_metrics = {
+            "min_propensity": float(min_propensity(log_probs).item()),
+            "ess_ratio": float(effective_sample_size_ratio(log_probs).item()),
+            "overlap_at_1e-2": float(support_overlap(log_probs, tau=1e-2).item()),
+            "tail_mass_top10pct": float(tail_mass_top_q(log_probs, q=0.1).item()),
+        }
+
+    def _compute_bound_metrics(self, actions: torch.Tensor, rewards: torch.Tensor) -> None:
+        if not self.env.is_discrete_action:
+            self._bound_metrics = {
+                "bound_width_mean": float("nan"),
+                "bound_width_max": float("nan"),
+                "n_arms_with_informative_bound": float("nan"),
+            }
+            return
+        acts = actions.view(-1).long()
+        rewards_01 = ((rewards.view(-1).float() + 1.0) / 2.0).clamp(0.0, 1.0)
+        bounds = natural_bounds(acts, rewards_01, n_actions=8, n_bootstrap=200)
+        widths = [r.upper - r.lower for r in bounds.values()]
+        mu_hats = [r.lower / max(r.p_a, 1e-8) for r in bounds.values()]
+        mu_star = max(mu_hats)
+        n_inf = sum(1 for r in bounds.values() if r.upper < mu_star)
+        self._bound_metrics = {
+            "bound_width_mean": float(sum(widths) / len(widths)),
+            "bound_width_max": float(max(widths)),
+            "n_arms_with_informative_bound": float(n_inf),
+        }
 
     def _evaluate_policy(self, seed: int) -> torch.Tensor:
         cpu_rng_state = torch.get_rng_state()
@@ -476,8 +558,47 @@ class BenchmarkRunner:
     def run(self) -> None:
         if ALGOS[self.config.algorithm].kind == "off_policy":
             self._run_offline()
-            return
-        self._run_online()
+        else:
+            self._run_online()
+        if self.config.eval_perturbations != "off":
+            self._evaluate_perturbations(seed=self.config.seed + 90_000)
+
+    def _evaluate_perturbations(self, seed: int) -> None:
+        specs = TABULAR_DIAGONAL if self.env.is_discrete_action else CONTINUOUS_DIAGONAL
+        base_env = self._make_eval_env_instance()
+        obs_base, _ = base_env.reset(seed=seed)
+        actions, _ = self.algo.select_action(obs_base, deterministic=True)
+        _, base_rewards, _, _, _ = base_env.step(actions)
+        base_return_mean = float(base_rewards.mean().item())
+        for spec in specs:
+            eval_env = self._make_eval_env_instance()
+            if hasattr(eval_env, "apply_perturbation"):
+                eval_env.apply_perturbation(spec)  # type: ignore[attr-defined]
+            obs, _ = eval_env.reset(seed=seed)
+            act, _ = self.algo.select_action(obs, deterministic=True)
+            rets = torch.zeros((self._eval_n_envs,), device=self.device)
+            for _ in range(eval_env.horizon):
+                obs, reward, terminated, truncated, _ = eval_env.step(act)
+                rets += reward
+                if bool(torch.all(terminated | truncated)):
+                    break
+            dks = d_env_ks(base_env, eval_env, lambda x: self.algo.select_action(x, deterministic=True)[0])
+            self.eval_perturbed_logger.write(
+                {
+                    "seed": self.config.seed,
+                    "cell": self.config.cell,
+                    "env": self.config.env_name,
+                    "algorithm": self.config.algorithm,
+                    "behaviour": self.config.behaviour,
+                    "alpha_conf": self.config.alpha_conf,
+                    "bias_strength": getattr(self.behaviour_policy, "bias_strength", 1.0),
+                    "eps_T": spec.eps_T,
+                    "eps_R": spec.eps_R,
+                    "eval_perturbed_return_mean": float(rets.mean().item()),
+                    "eval_perturbed_return_std": float(rets.std().item()),
+                    "D_env_KS": float(dks),
+                }
+            )
 
     def _discounted_returns(self, rewards: torch.Tensor, done: torch.Tensor) -> torch.Tensor:
         t_steps = rewards.shape[0]
@@ -526,6 +647,8 @@ class BenchmarkRunner:
                 next_obs_batch = torch.cat(next_obs_buf, dim=0)
                 done_batch = torch.cat(done_buf, dim=0)
                 logp_batch = torch.cat(logp_buf, dim=0)
+                self._compute_coverage_metrics(logp_batch.view(-1))
+                self._compute_bound_metrics(action_batch, reward_batch)
                 returns = returns_t.reshape(-1)
                 value_old = torch.zeros_like(returns)
                 adv = returns.clone()
@@ -569,14 +692,12 @@ class BenchmarkRunner:
                 )
             if tick % eval_interval == 0 or tick == self.config.total_frames:
                 eval_returns = self._evaluate_policy(seed=self.config.seed + tick + 10_000)
-                holdout_returns = self._evaluate_policy(seed=self.config.seed + tick + 20_000)
                 oracle_returns = self._evaluate_oracle(seed=self.config.seed + tick + 30_000)
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + tick + 50_000)
                 self._log_eval(
                     step=tick,
                     episode=episode,
                     eval_returns=eval_returns,
-                    holdout_returns=holdout_returns,
                     oracle_returns=oracle_returns,
                     metrics=gap_metrics,
                 )
@@ -592,6 +713,18 @@ class BenchmarkRunner:
             expose_latent=self.behaviour_policy.depends_on_u,
             seed=self.config.seed,
         )
+        if buffer.behaviour_logprob is not None and buffer.size > 0:
+            self._compute_coverage_metrics(buffer.behaviour_logprob[: buffer.size])
+        self._compute_bound_metrics(buffer.action[: buffer.size], buffer.reward[: buffer.size])
+        if (not self.cell_cfg.pi_b_known) and self.env.is_discrete_action:
+            model: PropensityModel = fit_propensity_model(
+                buffer.obs[: buffer.size], buffer.action[: buffer.size], n_actions=8
+            )
+            with torch.no_grad():
+                pred_lp = model(buffer.obs[: buffer.size])
+            self._propensity_calibration_ece = float(
+                expected_calibration_error(pred_lp, buffer.action[: buffer.size].view(-1), n_bins=10).item()
+            )
         episode = 0
         total_updates = self.config.total_frames
         train_interval = max(1, total_updates // max(1, self.config.n_checkpoints_train))
@@ -636,14 +769,12 @@ class BenchmarkRunner:
                 )
             if (step % eval_interval == 0) or (step == total_updates):
                 eval_returns = self._evaluate_policy(seed=self.config.seed + step + 10_000)
-                holdout_returns = self._evaluate_policy(seed=self.config.seed + step + 20_000)
                 oracle_returns = self._evaluate_oracle(seed=self.config.seed + step + 30_000)
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + step + 50_000)
                 self._log_eval(
                     step=step,
                     episode=episode,
                     eval_returns=eval_returns,
-                    holdout_returns=holdout_returns,
                     oracle_returns=oracle_returns,
                     metrics=gap_metrics,
                 )

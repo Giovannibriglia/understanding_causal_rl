@@ -108,7 +108,7 @@ def test_plotting_smoke(tmp_path: Path) -> None:
     # These return early when no data matches — just check they don't crash.
     make_bias_sweep(results, out)
     make_sample_sweep(results, out)
-    assert (out / "headline_gap_vs_generalisation.pdf").exists()
+    assert (out / "headline_gap_vs_oracle.pdf").exists()
     assert (out / "cell_grid_8x4.pdf").exists()
     assert (out / "summary_results.tex").exists()
     assert (out / "identifiability_panel.pdf").exists()
