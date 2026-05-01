@@ -63,3 +63,7 @@ class UCBPlus(UCB):
 
         log_prob = torch.zeros(batch, device=device)
         return action, log_prob
+
+    def n_informative_bounds(self) -> int:
+        span = self._upper - self._lower
+        return int((span < 1.0 - 1e-6).sum().item())

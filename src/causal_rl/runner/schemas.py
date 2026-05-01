@@ -31,6 +31,7 @@ TRAIN_COLUMNS = [
     "id_status",
     "lr",
     "grad_norm",
+    "n_arms_with_informative_bound",
 ]
 
 EVAL_COLUMNS = [
@@ -58,6 +59,8 @@ EVAL_COLUMNS = [
     "id_status",
     "eval_oracle_return_mean",
     "eval_oracle_return_std",
+    "delta_tv_beh",
+    "ece",
 ]
 
 PERTURBED_COLUMNS = [

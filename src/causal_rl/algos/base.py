@@ -15,3 +15,7 @@ class BaseAlgorithm(abc.ABC):
 
     @abc.abstractmethod
     def update(self, batch: dict[str, Tensor]) -> dict[str, float]: ...
+
+    def n_informative_bounds(self) -> int:
+        """Number of arms with tighter-than-trivial causal bounds. Override in subclasses."""
+        return 0

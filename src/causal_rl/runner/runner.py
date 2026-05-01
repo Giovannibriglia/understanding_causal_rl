@@ -27,6 +27,7 @@ from causal_rl.envs.registry import ENVS
 from causal_rl.envs.registry import make as make_env
 from causal_rl.envs.tabular_sepsis import TabularSepsisEnv
 from causal_rl.identification.id_oracle import get_id_status
+from causal_rl.metrics.calibration import expected_calibration_error
 from causal_rl.metrics.d_env import d_env_ks
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
 from causal_rl.runner.collector import collect_offline_dataset
@@ -240,6 +241,7 @@ class BenchmarkRunner:
         row["delta_tv_conditional"] = metrics.get(
             "delta_tv_conditional", metrics.get("delta_tv", 0.0)
         )
+        row["n_arms_with_informative_bound"] = self.algo.n_informative_bounds()
         self.train_logger.write(row)
 
     def _log_eval(
@@ -276,6 +278,8 @@ class BenchmarkRunner:
             "id_status": self.id_status,
             "eval_oracle_return_mean": float(oracle_returns.mean().item()),
             "eval_oracle_return_std": float(oracle_returns.std().item()),
+            "delta_tv_beh": metrics.get("delta_tv_beh", 0.0),
+            "ece": metrics.get("ece", 0.0),
         }
         self.eval_logger.write(row)
 
@@ -442,11 +446,14 @@ class BenchmarkRunner:
         eval_env = self._make_eval_env_instance()
         try:
             totals: dict[str, float] = {}
+            beh_tv_total = 0.0
             n_steps = 0
+            conf_buf: list[float] = []
+            outcome_buf: list[float] = []
             with torch.no_grad():
                 obs, _ = eval_env.reset(seed=seed)
                 for _ in range(eval_env.horizon):
-                    action, _ = self.algo.select_action(obs, deterministic=True)
+                    action, log_prob = self.algo.select_action(obs, deterministic=True)
                     next_obs, reward, terminated, truncated, _ = eval_env.step(action)
                     step_metrics = compute_gap_metrics(
                         eval_env,
@@ -459,6 +466,25 @@ class BenchmarkRunner:
                     )
                     for key, value in step_metrics.items():
                         totals[key] = totals.get(key, 0.0) + float(value)
+
+                    # Dual-policy delta_tv: also measure under behavior policy action
+                    beh_action, _ = self.behaviour_policy.select_action(obs)
+                    beh_step_metrics = compute_gap_metrics(
+                        eval_env,
+                        obs,
+                        beh_action,
+                        observed_reward=None,
+                        pi_b_logprob=None,
+                        n_samples=self.config.n_samples_gap,
+                        n_bootstrap=0,
+                    )
+                    beh_tv_total += float(beh_step_metrics.get("delta_tv", 0.0))
+
+                    # Collect (confidence, binary_outcome) for ECE (tabular only)
+                    if eval_env.is_discrete_action:
+                        conf_buf.extend(torch.exp(log_prob).tolist())
+                        outcome_buf.extend((reward > 0.0).float().tolist())
+
                     n_steps += 1
                     obs = next_obs
                     if bool(torch.all(terminated | truncated)):
@@ -475,8 +501,18 @@ class BenchmarkRunner:
                     "delta_ks": 0.0,
                     "delta_tv_marginal": 0.0,
                     "delta_tv_conditional": 0.0,
+                    "delta_tv_beh": 0.0,
+                    "ece": 0.0,
                 }
-            return {k: v / float(n_steps) for k, v in totals.items()}
+            result = {k: v / float(n_steps) for k, v in totals.items()}
+            result["delta_tv_beh"] = beh_tv_total / float(n_steps)
+            if conf_buf:
+                c = torch.tensor(conf_buf, device=self.device)
+                o = torch.tensor(outcome_buf, device=self.device)
+                result["ece"] = expected_calibration_error(c, o)
+            else:
+                result["ece"] = 0.0
+            return result
         finally:
             eval_env.close()
             torch.set_rng_state(cpu_rng_state)
