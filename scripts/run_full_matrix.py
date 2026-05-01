@@ -129,38 +129,38 @@ def main() -> None:
                             f"cell{cell}_{env}_{algo}_{beh}_seed{seed}_alpha{alpha_conf}"
                         )
                         cmd = [
-                        sys.executable,
-                        "scripts/run_single.py",
-                        "--cell",
-                        str(cell),
-                        "--env",
-                        env,
-                        "--algorithm",
-                        algo,
-                        "--behaviour",
-                        beh,
-                        "--seed",
-                        str(seed),
-                        "--total-frames",
-                        str(2_000 if args.quick else matrix.total_frames),
-                        "--n-checkpoints-train",
-                        str(10 if args.quick else matrix.n_checkpoints_train),
-                        "--n-checkpoints-eval",
-                        str(5 if args.quick else matrix.n_checkpoints_eval),
-                        "--output",
-                        str(run_dir),
-                    ]
+                            sys.executable,
+                            "scripts/run_single.py",
+                            "--cell",
+                            str(cell),
+                            "--env",
+                            env,
+                            "--algorithm",
+                            algo,
+                            "--behaviour",
+                            beh,
+                            "--seed",
+                            str(seed),
+                            "--total-frames",
+                            str(2_000 if args.quick else matrix.total_frames),
+                            "--n-checkpoints-train",
+                            str(10 if args.quick else matrix.n_checkpoints_train),
+                            "--n-checkpoints-eval",
+                            str(5 if args.quick else matrix.n_checkpoints_eval),
+                            "--output",
+                            str(run_dir),
+                        ]
                         cmd.extend(["--rollout-horizon", str(horizon), "--horizon", str(horizon)])
                         cmd.extend(
                             [
-                            "--offline-transitions",
-                            str(100 if args.quick else matrix.offline_transitions),
-                            "--offline-updates",
-                            str(50 if args.quick else matrix.offline_updates),
-                            "--alpha-conf",
-                            str(alpha_conf),
-                            "--n-envs",
-                            str(8 if args.quick else matrix.n_envs),
+                                "--offline-transitions",
+                                str(100 if args.quick else matrix.offline_transitions),
+                                "--offline-updates",
+                                str(50 if args.quick else matrix.offline_updates),
+                                "--alpha-conf",
+                                str(alpha_conf),
+                                "--n-envs",
+                                str(8 if args.quick else matrix.n_envs),
                             ]
                         )
                         if matrix.eval_n_envs is not None:
@@ -172,12 +172,12 @@ def main() -> None:
                         subprocess.run(cmd, check=True)
                         writer.writerow(
                             {
-                            "seed": seed,
-                            "cell": cell,
-                            "env": env,
-                            "algorithm": algo,
-                            "behaviour": beh,
-                            "output_path": str(run_dir),
+                                "seed": seed,
+                                "cell": cell,
+                                "env": env,
+                                "algorithm": algo,
+                                "behaviour": beh,
+                                "output_path": str(run_dir),
                             }
                         )
                         pbar.update(1)
