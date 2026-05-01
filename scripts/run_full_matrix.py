@@ -102,6 +102,7 @@ def _build_cmd(
     algo: str,
     beh: str,
     seed: int,
+    alpha_conf: float,
     matrix: MatrixConfig,
     run_dir: Path,
     device: str | None,
@@ -143,10 +144,12 @@ def _build_cmd(
         "--offline-updates",
         str(50 if quick else matrix.offline_updates),
         "--alpha-conf",
-        str(matrix.alpha_conf),
+        str(alpha_conf),
         "--n-envs",
         str(8 if quick else n_envs),
     ]
+    if not matrix.eval_perturbations:
+        cmd.append("--no-eval-perturbations")
     if matrix.eval_n_envs is not None:
         cmd.extend(["--eval-n-envs", str(matrix.eval_n_envs)])
     if device is not None:
@@ -213,35 +216,45 @@ def main() -> None:
     elif args.device is not None:
         devices = [args.device]
 
+    alpha_values: list[float] = (
+        list(matrix.alpha_conf_sweep)
+        if matrix.alpha_conf_sweep
+        else [matrix.alpha_conf]
+    )
+
     # Build all tasks.
     tasks: list[RunTask] = []
     for seed in seeds:
-        for cell, env, algo, beh in runs:
-            run_dir = base_results / f"cell{cell}_{env}_{algo}_{beh}_seed{seed}"
-            device = devices[len(tasks) % len(devices)] if devices else args.device
-            cmd = _build_cmd(
-                cell=cell,
-                env=env,
-                algo=algo,
-                beh=beh,
-                seed=seed,
-                matrix=matrix,
-                run_dir=run_dir,
-                device=device,
-                quick=args.quick,
-            )
-            row: dict[str, object] = {
-                "seed": seed,
-                "cell": cell,
-                "env": env,
-                "algorithm": algo,
-                "behaviour": beh,
-                "output_path": str(run_dir),
-            }
-            tasks.append((cmd, row))
+        for alpha_conf in alpha_values:
+            for cell, env, algo, beh in runs:
+                alpha_tag = f"_alpha{alpha_conf}" if len(alpha_values) > 1 else ""
+                run_dir = base_results / f"cell{cell}_{env}_{algo}_{beh}_seed{seed}{alpha_tag}"
+                device = devices[len(tasks) % len(devices)] if devices else args.device
+                cmd = _build_cmd(
+                    cell=cell,
+                    env=env,
+                    algo=algo,
+                    beh=beh,
+                    seed=seed,
+                    alpha_conf=alpha_conf,
+                    matrix=matrix,
+                    run_dir=run_dir,
+                    device=device,
+                    quick=args.quick,
+                )
+                row: dict[str, object] = {
+                    "seed": seed,
+                    "alpha_conf": alpha_conf,
+                    "cell": cell,
+                    "env": env,
+                    "algorithm": algo,
+                    "behaviour": beh,
+                    "output_path": str(run_dir),
+                }
+                tasks.append((cmd, row))
 
     manifest = base_results / "manifest.csv"
-    manifest_fields = ["seed", "cell", "env", "algorithm", "behaviour", "output_path"]
+    manifest_fields = ["seed", "alpha_conf", "cell", "env", "algorithm", "behaviour", "output_path"]
     failed: list[tuple[dict[str, object], int, str]] = []
 
     with manifest.open("w", newline="", encoding="utf-8") as mf:

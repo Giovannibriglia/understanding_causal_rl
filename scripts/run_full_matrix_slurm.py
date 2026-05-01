@@ -72,66 +72,76 @@ def main() -> None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_results = Path("results") / f"{config_file.stem}_{ts}"
 
+    alpha_values: list[float] = (
+        list(matrix.alpha_conf_sweep)
+        if matrix.alpha_conf_sweep
+        else [matrix.alpha_conf]
+    )
+
     lines: list[str] = []
     for seed in seeds:
-        for cell, env, algo, beh in itertools.product(
-            matrix.cells, matrix.envs, matrix.algorithms, matrix.behaviours
-        ):
-            spec = ALGOS.get(algo)
-            if spec is None or cell not in spec.supported_cells:
-                continue
-            if env == "continuous-ward-v0" and spec.action_type == "discrete":
-                continue
-            if env == "tabular-sepsis-v0" and spec.action_type == "continuous":
-                continue
+        for alpha_conf in alpha_values:
+            for cell, env, algo, beh in itertools.product(
+                matrix.cells, matrix.envs, matrix.algorithms, matrix.behaviours
+            ):
+                spec = ALGOS.get(algo)
+                if spec is None or cell not in spec.supported_cells:
+                    continue
+                if env == "continuous-ward-v0" and spec.action_type == "discrete":
+                    continue
+                if env == "tabular-sepsis-v0" and spec.action_type == "continuous":
+                    continue
 
-            horizon = matrix.env_horizons.get(env)
-            if horizon is None:
-                continue
+                horizon = matrix.env_horizons.get(env)
+                if horizon is None:
+                    continue
 
-            n_envs = matrix.n_envs if matrix.n_envs != 64 else spec.default_n_envs
-            run_dir = base_results / f"cell{cell}_{env}_{algo}_{beh}_seed{seed}"
+                n_envs = matrix.n_envs if matrix.n_envs != 64 else spec.default_n_envs
+                alpha_tag = f"_alpha{alpha_conf}" if len(alpha_values) > 1 else ""
+                run_dir = base_results / f"cell{cell}_{env}_{algo}_{beh}_seed{seed}{alpha_tag}"
 
-            parts = [
-                sys.executable,
-                str(ROOT / "scripts" / "run_single.py"),
-                "--cell",
-                str(cell),
-                "--env",
-                env,
-                "--algorithm",
-                algo,
-                "--behaviour",
-                beh,
-                "--seed",
-                str(seed),
-                "--total-frames",
-                str(matrix.total_frames),
-                "--n-checkpoints-train",
-                str(matrix.n_checkpoints_train),
-                "--n-checkpoints-eval",
-                str(matrix.n_checkpoints_eval),
-                "--horizon",
-                str(horizon),
-                "--rollout-horizon",
-                str(horizon),
-                "--offline-transitions",
-                str(matrix.offline_transitions),
-                "--offline-updates",
-                str(matrix.offline_updates),
-                "--alpha-conf",
-                str(matrix.alpha_conf),
-                "--n-envs",
-                str(n_envs),
-                "--output",
-                str(run_dir),
-            ]
-            if matrix.eval_n_envs is not None:
-                parts += ["--eval-n-envs", str(matrix.eval_n_envs)]
-            if args.device is not None:
-                parts += ["--device", args.device]
+                parts = [
+                    sys.executable,
+                    str(ROOT / "scripts" / "run_single.py"),
+                    "--cell",
+                    str(cell),
+                    "--env",
+                    env,
+                    "--algorithm",
+                    algo,
+                    "--behaviour",
+                    beh,
+                    "--seed",
+                    str(seed),
+                    "--total-frames",
+                    str(matrix.total_frames),
+                    "--n-checkpoints-train",
+                    str(matrix.n_checkpoints_train),
+                    "--n-checkpoints-eval",
+                    str(matrix.n_checkpoints_eval),
+                    "--horizon",
+                    str(horizon),
+                    "--rollout-horizon",
+                    str(horizon),
+                    "--offline-transitions",
+                    str(matrix.offline_transitions),
+                    "--offline-updates",
+                    str(matrix.offline_updates),
+                    "--alpha-conf",
+                    str(alpha_conf),
+                    "--n-envs",
+                    str(n_envs),
+                    "--output",
+                    str(run_dir),
+                ]
+                if not matrix.eval_perturbations:
+                    parts.append("--no-eval-perturbations")
+                if matrix.eval_n_envs is not None:
+                    parts += ["--eval-n-envs", str(matrix.eval_n_envs)]
+                if args.device is not None:
+                    parts += ["--device", args.device]
 
-            lines.append(" ".join(parts))
+                lines.append(" ".join(parts))
 
     sys.stdout.write("\n".join(lines) + "\n")
     print(f"# {len(lines)} commands written.", file=sys.stderr)

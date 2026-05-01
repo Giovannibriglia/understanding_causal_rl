@@ -60,6 +60,7 @@ class RunnerConfig:
     n_bootstrap: int = 200
     n_samples_gap: int = 200
     n_eval_episodes: int = 5
+    eval_perturbations: bool = True
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
 
@@ -492,6 +493,8 @@ class BenchmarkRunner:
 
     def _evaluate_perturbations(self, step: int, episode: int, seed: int) -> None:
         """Run closed-loop evaluation across TABULAR_DIAGONAL perturbation levels."""
+        if not self.config.eval_perturbations:
+            return
         if not isinstance(self.env, TabularSepsisEnv):
             return
 

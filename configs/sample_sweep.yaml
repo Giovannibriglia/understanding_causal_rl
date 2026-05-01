@@ -1,20 +1,22 @@
-# Sample-size sweep: vary offline_transitions to show identifiability floor.
-# For Phase D of the v3 brief. Run separately for each offline_transitions value.
+# Sample-size sweep: vary offline_transitions across 5 levels to show identifiability floor.
+# Use alpha_conf_sweep [0.0, 2.0] to show interaction with confounding.
+# eval_perturbations off to halve wall-clock time.
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
 algorithms:
   - cql
+  - bound_cql
 behaviours:
   - reward_aligned
 seeds: [0, 1, 2, 3, 4]
-total_frames: 2000
+total_frames: 50000
 n_checkpoints_train: 10
 n_checkpoints_eval: 5
 env_horizons:
   tabular-sepsis-v0: 20
-  continuous-ward-v0: 50
-offline_transitions: 25000
-offline_updates: 500
-alpha_conf: 2.0
-n_envs: 128
+offline_transitions: 50000
+offline_updates: 2000
+alpha_conf_sweep: [0.0, 2.0]
+n_envs: 64
+eval_perturbations: false

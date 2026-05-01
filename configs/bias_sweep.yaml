@@ -1,22 +1,23 @@
-# Bias/coverage sweep: vary bias_strength in [0, 1] across all 4 cells.
-# For Phase D of the v3 brief.
+# Bias/coverage sweep: vary alpha_conf across 5 levels to show confounding effect.
+# eval_perturbations off to halve wall-clock time.
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
 algorithms:
   - dqn
   - cql
+  - bound_cql
 behaviours:
   - uniform
   - reward_aligned
 seeds: [0, 1, 2, 3, 4]
-total_frames: 5000
+total_frames: 50000
 n_checkpoints_train: 20
 n_checkpoints_eval: 10
 env_horizons:
   tabular-sepsis-v0: 20
-  continuous-ward-v0: 50
-offline_transitions: 10000
-offline_updates: 500
-alpha_conf: 2.0
-n_envs: 128
+offline_transitions: 50000
+offline_updates: 2000
+alpha_conf_sweep: [0.0, 0.5, 1.0, 1.5, 2.0]
+n_envs: 64
+eval_perturbations: false
