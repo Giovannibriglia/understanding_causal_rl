@@ -86,3 +86,18 @@ EVAL_COLUMNS = [
     "eval_oracle_return_mean",
     "eval_oracle_return_std",
 ]
+
+EVAL_PERTURBED_COLUMNS = [
+    "seed",
+    "cell",
+    "env",
+    "algorithm",
+    "behaviour",
+    "alpha_conf",
+    "bias_strength",
+    "eps_T",
+    "eps_R",
+    "eval_perturbed_return_mean",
+    "eval_perturbed_return_std",
+    "D_env_KS",
+]

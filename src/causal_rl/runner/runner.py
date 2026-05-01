@@ -32,9 +32,11 @@ from causal_rl.metrics.coverage import (
     tail_mass_top_q,
 )
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
+from causal_rl.metrics.d_env import d_env_ks
 from causal_rl.runner.collector import collect_offline_dataset
 from causal_rl.runner.csv_logger import CSVLogger
-from causal_rl.runner.schemas import EVAL_COLUMNS, TRAIN_COLUMNS
+from causal_rl.runner.schemas import EVAL_COLUMNS, EVAL_PERTURBED_COLUMNS, TRAIN_COLUMNS
+from causal_rl.envs.perturbations import CONTINUOUS_DIAGONAL, TABULAR_DIAGONAL
 from causal_rl.utils.device import get_device
 from causal_rl.utils.git import get_git_commit
 from causal_rl.utils.seeding import set_seed
@@ -64,6 +66,7 @@ class RunnerConfig:
     n_samples_gap: int = 200
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
+    eval_perturbations: str = "default"
 
 
 class BenchmarkRunner:
@@ -76,6 +79,9 @@ class BenchmarkRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.train_logger = CSVLogger(self.output_dir / "train.csv", TRAIN_COLUMNS)
         self.eval_logger = CSVLogger(self.output_dir / "eval.csv", EVAL_COLUMNS)
+        self.eval_perturbed_logger = CSVLogger(
+            self.output_dir / "eval_perturbed.csv", EVAL_PERTURBED_COLUMNS
+        )
 
         self.env = self._make_env_instance()
         self.env_spec = ENVS[config.env_name]
@@ -552,8 +558,47 @@ class BenchmarkRunner:
     def run(self) -> None:
         if ALGOS[self.config.algorithm].kind == "off_policy":
             self._run_offline()
-            return
-        self._run_online()
+        else:
+            self._run_online()
+        if self.config.eval_perturbations != "off":
+            self._evaluate_perturbations(seed=self.config.seed + 90_000)
+
+    def _evaluate_perturbations(self, seed: int) -> None:
+        specs = TABULAR_DIAGONAL if self.env.is_discrete_action else CONTINUOUS_DIAGONAL
+        base_env = self._make_eval_env_instance()
+        obs_base, _ = base_env.reset(seed=seed)
+        actions, _ = self.algo.select_action(obs_base, deterministic=True)
+        _, base_rewards, _, _, _ = base_env.step(actions)
+        base_return_mean = float(base_rewards.mean().item())
+        for spec in specs:
+            eval_env = self._make_eval_env_instance()
+            if hasattr(eval_env, "apply_perturbation"):
+                eval_env.apply_perturbation(spec)  # type: ignore[attr-defined]
+            obs, _ = eval_env.reset(seed=seed)
+            act, _ = self.algo.select_action(obs, deterministic=True)
+            rets = torch.zeros((self._eval_n_envs,), device=self.device)
+            for _ in range(eval_env.horizon):
+                obs, reward, terminated, truncated, _ = eval_env.step(act)
+                rets += reward
+                if bool(torch.all(terminated | truncated)):
+                    break
+            dks = d_env_ks(base_env, eval_env, lambda x: self.algo.select_action(x, deterministic=True)[0])
+            self.eval_perturbed_logger.write(
+                {
+                    "seed": self.config.seed,
+                    "cell": self.config.cell,
+                    "env": self.config.env_name,
+                    "algorithm": self.config.algorithm,
+                    "behaviour": self.config.behaviour,
+                    "alpha_conf": self.config.alpha_conf,
+                    "bias_strength": getattr(self.behaviour_policy, "bias_strength", 1.0),
+                    "eps_T": spec.eps_T,
+                    "eps_R": spec.eps_R,
+                    "eval_perturbed_return_mean": float(rets.mean().item()),
+                    "eval_perturbed_return_std": float(rets.std().item()),
+                    "D_env_KS": float(dks),
+                }
+            )
 
     def _discounted_returns(self, rewards: torch.Tensor, done: torch.Tensor) -> torch.Tensor:
         t_steps = rewards.shape[0]

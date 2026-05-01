@@ -5,6 +5,7 @@ from torch import Tensor
 
 from causal_rl.envs.base import CausalEnv
 from causal_rl.envs.cell_config import CELL_CONFIGS
+from causal_rl.envs.perturbations import PerturbationSpec
 from causal_rl.utils.device import get_device
 
 
@@ -209,3 +210,9 @@ class ContinuousWardEnv(CausalEnv):
 
     def close(self) -> None:
         return None
+
+    def apply_perturbation(self, spec: PerturbationSpec) -> None:
+        self.target_state = (self.target_state + spec.eps_target).clamp(0.0, 1.0)
+        scale = 1.0 + spec.eps_dynamics
+        self.dt = float(self.dt * scale)
+        self.sigma = float(self.sigma * scale)

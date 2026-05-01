@@ -58,6 +58,7 @@ class MatrixConfig(BaseModel):
     alpha_conf: float = 0.0
     n_envs: int = 64
     eval_n_envs: int | None = None
+    eval_perturbations: str = "default"
 
 
 def load_yaml(path: Path) -> dict[str, Any]:

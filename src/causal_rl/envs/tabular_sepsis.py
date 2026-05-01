@@ -9,6 +9,7 @@ from torch import Tensor
 
 from causal_rl.envs.base import CausalEnv
 from causal_rl.envs.cell_config import CELL_CONFIGS
+from causal_rl.envs.perturbations import PerturbationSpec, perturb_tabular_rewards, perturb_tabular_transition
 from causal_rl.utils.device import get_device
 
 OBS_STATES: Final[int] = 720
@@ -260,3 +261,7 @@ class TabularSepsisEnv(CausalEnv):
 
     def close(self) -> None:
         return None
+
+    def apply_perturbation(self, spec: PerturbationSpec) -> None:
+        self.transition = perturb_tabular_transition(self.transition, spec.eps_T, seed=0)
+        self.reward_probs = perturb_tabular_rewards(self.reward_probs, spec.eps_R)
