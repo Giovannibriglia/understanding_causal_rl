@@ -9,12 +9,10 @@ experiment run.
 from __future__ import annotations
 
 import csv
-import io
 from pathlib import Path
 
 import numpy as np
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers to build synthetic CSVs that mimic real run output
@@ -121,7 +119,7 @@ def test_identifiability_ordering(tmp_path: Path) -> None:
     rng = np.random.default_rng(0)
     rows_by_status: dict[str, list[float]] = {"id": [], "partial_id": [], "non_id": []}
     all_eval: list[dict[str, object]] = []
-    for seed in range(20):
+    for _seed in range(20):
         all_eval.append(_eval_row(id_status="id",
                                   eval_return=10.0 + rng.normal(0, 0.5), oracle_return=15.0))
         all_eval.append(_eval_row(id_status="partial_id",
@@ -211,18 +209,18 @@ def test_stratified_r2_bounds(tmp_path: Path) -> None:
     assert len(rows) >= 100
 
     feature_cols = ["delta_tv", "bound_width_mean", "D_env_KS"]
-    X_raw = np.array([[r.get(c, 0.0) for c in feature_cols] for r in rows])
+    x_raw = np.array([[r.get(c, 0.0) for c in feature_cols] for r in rows])  # noqa: N806
     y = np.array([r["G"] for r in rows])
     statuses = [str(r["id_status"]) for r in rows]
 
     scaler = StandardScaler()
-    X = scaler.fit_transform(X_raw)
+    x_scaled = scaler.fit_transform(x_raw)  # noqa: N806
 
     for status, lo, hi in [("id", 0.6, 1.01), ("non_id", -1.0, 0.3)]:
         mask = np.array([s == status for s in statuses])
         lr = LinearRegression()
-        lr.fit(X[mask], y[mask])
-        r2 = _r2_score(y[mask], lr.predict(X[mask]))
+        lr.fit(x_scaled[mask], y[mask])
+        r2 = _r2_score(y[mask], lr.predict(x_scaled[mask]))
         assert lo <= r2 <= hi, (
             f"{status} stratum R²={r2:.3f} outside [{lo}, {hi}]"
         )

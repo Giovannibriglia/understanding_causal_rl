@@ -1,23 +1,40 @@
 # Reproducing the paper
 
-## Full matrix
+See [experiment_plan.md](experiment_plan.md) for the full Tier 0–4 plan with figure–claim mapping.
+
+## Step 0 — Sanity check (< 2 min, CPU)
 
 ```bash
-python scripts/run_full_matrix.py \
-  --seeds 0 1 2 \
-  --device cuda \
-  --config full_matrix
+python scripts/run_full_matrix.py --config smoke_quick
 ```
 
-# The runner prints the selected results directory (results/full_matrix_<timestamp>); use that path as input to plotting.
+All runs must exit 0 before proceeding.
 
-## Build all figures
+## Step 1 — Full paper matrix (~24 h, A100)
 
 ```bash
-# Use the results path printed by run_full_matrix (e.g. results/full_matrix_<timestamp>)
-python scripts/make_all_figures.py --results results/full_matrix_<timestamp>
-# Output will be written to outputs/full_matrix_<timestamp> by default.
-# Figures are separated by environment family and stored under 'tabular' and 'continuous' subfolders.
+# Local (8 workers, 2 GPUs)
+python scripts/run_full_matrix.py --config paper --n-workers 8 --n-gpus 2
+
+# SLURM array
+python scripts/run_full_matrix_slurm.py --config paper \
+    --seeds 0 1 2 3 4 5 6 7 8 9 > commands.txt
+sbatch --array=1-$(wc -l < commands.txt) slurm_array.sh
+```
+
+The runner prints the results directory (e.g. `results/paper_<timestamp>`).
+
+## Step 2 — Bias and sample sweeps
+
+```bash
+python scripts/run_full_matrix.py --config bias_sweep --n-workers 4
+python scripts/run_full_matrix.py --config sample_sweep --n-workers 4
+```
+
+## Step 3 — Build all figures
+
+```bash
+python scripts/make_all_figures.py --results results/paper_<timestamp>
 ```
 
 ## Single run (debug/ablation)
