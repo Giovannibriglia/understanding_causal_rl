@@ -11,36 +11,50 @@ PyTorch-first vectorised benchmark suite for causal RL identifiability studies.
 This repository is the experimental companion to *Debugging Reinforcement Learning through a Simple Causal Lens*. It benchmarks policies across four causal cells using controllable medical environments and logs the empirical identifiability gap \(\Delta_\varphi\), with TV as the primary operational metric.
 
 ## Quickstart
+
 ```bash
 git clone <url> && cd understanding_causal_rl
-```
-```bash
 pip install -e ".[dev]"
 ```
+
+**Sanity check (< 2 min on CPU):**
+
+```bash
+python scripts/run_full_matrix.py --config smoke_quick
+```
+
+**Single run:**
+
 ```bash
 python scripts/run_single.py --cell 1 --env tabular-sepsis-v0 \
     --algorithm ppo --behaviour uniform --seed 0 \
     --total-frames 50000 --n-checkpoints-train 50 --n-checkpoints-eval 10 \
     --horizon 20 --rollout-horizon 20 --device cpu --output results/single_run
 ```
+
+**Full paper run (~24 h on A100):**
+
 ```bash
-# Use the results directory printed by run_full_matrix (results/<config_name>_<timestamp>)
+python scripts/run_full_matrix.py --config paper --n-workers 8 --n-gpus 2
+```
+
+**Generate figures:**
+
+```bash
+# Use the results path printed by run_full_matrix
 python scripts/make_all_figures.py --results results/<config_name>_<timestamp>
-# Plots and tables will be written to outputs/<config_name>_<timestamp> by default.
 ```
 
-## Reproducing the paper's headline figure
+**SLURM array (HPC clusters):**
+
 ```bash
-python scripts/run_full_matrix.py --seeds 0 1 2 --device cuda --config full_matrix
+python scripts/run_full_matrix_slurm.py --config paper \
+    --seeds 0 1 2 3 4 5 6 7 8 9 > commands.txt
+sbatch --array=1-$(wc -l < commands.txt) slurm_array.sh
 ```
 
-# After the run, use the printed results path (e.g. results/full_matrix_<timestamp>) as input to plotting:
-```bash
-python scripts/make_all_figures.py --results results/full_matrix_<timestamp>
-```
-# Plots and tables will be written to outputs/<config_name>_<timestamp> by default. Figures are separated by environment family and stored under 'tabular' and 'continuous' subfolders (e.g. outputs/full_matrix_<timestamp>/tabular).
-
-Expected runtime: ~24h on a single A100 node, ~7 days on a single modern CPU box (tabular envs only).
+See [docs/experiment_plan.md](docs/experiment_plan.md) for the full Tier 0–4 experiment plan
+and figure-claim mapping.
 
 ## Launching Experiments
 
@@ -48,44 +62,56 @@ Single-run entrypoint: `scripts/run_single.py`.
 
 ```bash
 python scripts/run_single.py \
-  --cell 6 \
-  --env continuous-ward-v0 \
-  --algorithm ddpg \
-  --behaviour reward_aligned \
-  --seed 1 \
-  --total-frames 100000 \
-  --n-checkpoints-train 50 \
-  --n-checkpoints-eval 10 \
-  --horizon 50 \
-  --rollout-horizon 50 \
+  --cell 1 \
+  --env tabular-sepsis-v0 \
+  --algorithm dqn \
+  --behaviour uniform \
+  --seed 0 \
+  --total-frames 200000 \
+  --n-checkpoints-train 100 \
+  --n-checkpoints-eval 50 \
+  --horizon 20 \
+  --rollout-horizon 20 \
+  --alpha-conf 2.0 \
   --device cuda \
-  --output results/cell6_ddpg_seed1
+  --output results/cell1_dqn_seed0
 ```
 
-Parameter semantics:
+Key `run_single.py` flags:
 
-- `--cell`: causal cell id (`1..4`).
-- `--env`: environment name (`tabular-sepsis-v0` or `continuous-ward-v0`).
-- `--algorithm`: training algorithm from `algos/registry.py`.
-- `--behaviour`: behaviour-policy family used for data collection.
-- `--seed`: random seed for reproducible runs.
-- `--total-frames`: total interaction/training frames. Must satisfy:
-  `total_frames = n_episodes * episode_horizon_length`.
-- `--n-checkpoints-train`: number of train rows to write in `train.csv`.
-- `--n-checkpoints-eval`: number of eval rows to write in `eval.csv`.
-- `--horizon`: explicit episode horizon passed to the environment.
-- `--rollout-horizon`: rollout length used for online minibatch updates.
-- `--device`: `cuda` or `cpu`.
-- `--output`: output folder for `train.csv`, `eval.csv`, `meta.json`.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--cell` | required | Causal cell id (1–4) |
+| `--env` | required | `tabular-sepsis-v0` or `continuous-ward-v0` |
+| `--algorithm` | required | Algorithm name from `algos/registry.py` |
+| `--behaviour` | required | Behaviour policy (uniform, reward_aligned, …) |
+| `--seed` | required | Random seed |
+| `--total-frames` | 50 000 | Training frames / offline updates |
+| `--horizon` | None | Episode horizon (required for tabular) |
+| `--alpha-conf` | 0.0 | Confounding strength α |
+| `--n-eval-episodes` | 5 | Episodes per perturbation spec |
+| `--eval-perturbations` / `--no-eval-perturbations` | on | Run TABULAR_DIAGONAL perturbed eval |
+| `--output` | required | Output directory for CSVs |
 
-`eval.csv` also logs `eval_oracle_return_mean/std`, computed from an oracle policy (exact finite-horizon DP for tabular sepsis; model-based greedy oracle for continuous ward). Learning-curve eval panels overlay this oracle as a dashed black reference.
+`eval.csv` logs `eval_oracle_return_mean/std` (DP oracle for tabular; CEM for continuous),
+`delta_tv` and `delta_tv_beh` (gap under learned vs. behaviour policy), and `ece`
+(Expected Calibration Error). See [docs/metric.md](docs/metric.md) for definitions.
 
-Matrix entrypoint: `scripts/run_full_matrix.py`. It reads frame/checkpoint controls and per-environment horizons from the YAML config:
+Matrix entrypoint: `scripts/run_full_matrix.py`:
 
-- `total_frames`
-- `n_checkpoints_train`
-- `n_checkpoints_eval`
-- `env_horizons` (per environment): specifies the episode horizon for each environment. The runner uses each environment's horizon as both the episode horizon and the rollout horizon. To override these defaults, `run_single.py` accepts explicit `--horizon` and `--rollout-horizon` flags.
+```bash
+python scripts/run_full_matrix.py --config paper --n-workers 4 --n-gpus 1
+```
+
+| YAML field | Description |
+|------------|-------------|
+| `total_frames` | Training frames |
+| `n_checkpoints_train` / `n_checkpoints_eval` | CSV row count |
+| `env_horizons` | Per-env episode horizon |
+| `alpha_conf` | Single confounding level |
+| `alpha_conf_sweep` | List of confounding levels (expands the factorial) |
+| `eval_perturbations` | `true`/`false` — set `false` to halve sweep wall-time |
+| `seeds` | List of random seeds |
 
 ## The four cells
 | cell | shorthand | expose_Z | pi_b_known | typical id_status |
@@ -128,6 +154,17 @@ Implementation detail: divergence values logged to `train.csv` and `eval.csv` ar
 
 ## Architecture overview
 The codebase is built around four registries (envs, algorithms, behaviour policies, divergences), a vectorised environment API, and a schema-fixed CSV runner. See [docs/architecture.md](docs/architecture.md) for extension points and throughput considerations.
+
+### Key docs
+
+| Document | Contents |
+|----------|----------|
+| [docs/experiment_plan.md](docs/experiment_plan.md) | Tier 0–4 experiment plan, figure–claim mapping, quality gates |
+| [docs/cells.md](docs/cells.md) | Causal cell definitions (expose_Z, expose_U, pi_b_known) |
+| [docs/behaviour_policies.md](docs/behaviour_policies.md) | Behaviour policy families and their confounding patterns |
+| [docs/metric.md](docs/metric.md) | Δ_TV, ECE, D_env_KS metric definitions |
+| [docs/reproducing_paper.md](docs/reproducing_paper.md) | Step-by-step paper reproduction checklist |
+| [docs/architecture.md](docs/architecture.md) | Codebase structure and extension guide |
 
 ## Repository layout
 ```text

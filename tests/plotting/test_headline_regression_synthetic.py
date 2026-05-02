@@ -160,8 +160,17 @@ def test_make_headline_regression_runs(tmp_path: Path) -> None:
     _write_synthetic_data(results_dir)
     make_headline_regression(results_dir, out)
     assert (out / "headline_regression_table.csv").exists()
+    assert (out / "headline_stratified_r2.csv").exists()
     assert (out / "headline_pure_divergence.pdf").exists()
     assert (out / "headline_fitted.pdf").exists()
+
+    # Check stratified R² CSV has all strata
+    import csv as csv_mod
+
+    with (out / "headline_stratified_r2.csv").open() as f:
+        strat_rows = list(csv_mod.DictReader(f))
+    strata_found = {r["stratum"] for r in strat_rows}
+    assert {"id", "partial_id", "non_id", "pooled"} == strata_found
 
 
 def test_regression_recovers_stratified_structure(tmp_path: Path) -> None:

@@ -1,0 +1,21 @@
+# Minimal smoke test: completes in <2 min on CPU. Catches import/shape errors.
+cells: [1, 2]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - dqn
+  - ppo
+behaviours:
+  - uniform
+seeds: [0]
+total_frames: 500
+n_checkpoints_train: 5
+n_checkpoints_eval: 2
+env_horizons:
+  tabular-sepsis-v0: 20
+offline_transitions: 200
+offline_updates: 20
+alpha_conf: 0.0
+n_envs: 8
+n_eval_episodes: 2
+eval_perturbations: true

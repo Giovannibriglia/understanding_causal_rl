@@ -71,17 +71,26 @@ class TabularSepsisEnv(CausalEnv):
         return transition
 
     def _load_or_build_reward(self, reward_path: str | None) -> Tensor:
+        import math
+
         if reward_path is not None and Path(reward_path).exists():
             arr = np.load(reward_path)
             return torch.as_tensor(arr, dtype=torch.float32)
         reward = torch.zeros((LATENT_STATES, N_ACTIONS, 2), dtype=torch.float32)
         for s in range(LATENT_STATES):
             z = float(s // OBS_STATES)
-            obs = float(s % OBS_STATES) / float(OBS_STATES - 1)
+            best_a_norm = 0.2 + 0.4 * z
+            # Rank actions by closeness to best_a_norm (rank 0 = best).
+            # Rank-normalise to [0,1] so the uniform-policy mean p_pos is exactly 0.5.
+            distances = [
+                abs(float(a) / float(N_ACTIONS - 1) - best_a_norm) for a in range(N_ACTIONS)
+            ]
+            sorted_dists = sorted(set(distances))
+            rank_of = {d: sorted_dists.index(d) for d in sorted_dists}
             for a in range(N_ACTIONS):
-                a_norm = float(a) / float(N_ACTIONS - 1)
-                p_pos = 0.35 + 0.35 * (1.0 - abs(a_norm - (0.2 + 0.4 * z))) + 0.1 * (1.0 - obs)
-                p_pos = float(max(0.01, min(0.99, p_pos)))
+                rank_norm = float(rank_of[distances[a]]) / float(N_ACTIONS - 1)
+                p_pos = 1.0 / (1.0 + math.exp(6.0 * (rank_norm - 0.5)))
+                p_pos = float(max(0.02, min(0.98, p_pos)))
                 reward[s, a, 0] = 1.0 - p_pos
                 reward[s, a, 1] = p_pos
         return reward

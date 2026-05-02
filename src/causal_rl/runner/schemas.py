@@ -85,6 +85,24 @@ EVAL_COLUMNS = [
     "id_status",
     "eval_oracle_return_mean",
     "eval_oracle_return_std",
+    "delta_tv_beh",
+    "ece",
+]
+
+PERTURBED_COLUMNS = [
+    "step",
+    "episode",
+    "wall_time",
+    "cell",
+    "env_name",
+    "algorithm",
+    "behaviour_policy",
+    "seed",
+    "eps_T",
+    "eps_R",
+    "eval_perturbed_return_mean",
+    "eval_perturbed_return_std",
+    "D_env_KS",
 ]
 
 EVAL_PERTURBED_COLUMNS = [

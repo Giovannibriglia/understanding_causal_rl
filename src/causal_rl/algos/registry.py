@@ -25,6 +25,8 @@ class AlgoSpec:
     action_type: Literal["discrete", "continuous", "both"]
     supported_cells: set[int]
     kind: Literal["on_policy", "off_policy"]
+    # Preferred parallelism when n_envs is not set in the YAML config.
+    default_n_envs: int = 64
 
 
 ALGOS: dict[str, AlgoSpec] = {}
@@ -43,14 +45,21 @@ def make(name: str, **kwargs: object) -> BaseAlgorithm:
 
 _ALL_CELLS: set[int] = {1, 2, 3, 4}
 
-register(AlgoSpec("ppo", PPO, "discrete", _ALL_CELLS, "on_policy"))
-register(AlgoSpec("a2c", A2C, "discrete", _ALL_CELLS, "on_policy"))
-register(AlgoSpec("dqn", DQN, "discrete", _ALL_CELLS, "off_policy"))
-register(AlgoSpec("ddpg", DDPG, "continuous", _ALL_CELLS, "off_policy"))
-register(AlgoSpec("cql", CQL, "discrete", _ALL_CELLS, "off_policy"))
-register(AlgoSpec("confounded_dqn", ConfoundedDQN, "discrete", _ALL_CELLS, "off_policy"))
-register(AlgoSpec("ucb", UCB, "discrete", _ALL_CELLS, "on_policy"))
-register(AlgoSpec("ucb_minus", UCBMinus, "discrete", _ALL_CELLS, "on_policy"))
-register(AlgoSpec("ucb_plus", UCBPlus, "discrete", _ALL_CELLS, "on_policy"))
-register(AlgoSpec("rct", RCT, "discrete", _ALL_CELLS, "on_policy"))
-register(AlgoSpec("bound_cql", BoundCQL, "discrete", _ALL_CELLS, "off_policy"))
+# PPO / A2C are rollout-bound — large batches converge faster.
+register(AlgoSpec("ppo", PPO, "discrete", _ALL_CELLS, "on_policy", default_n_envs=256))
+register(AlgoSpec("a2c", A2C, "discrete", _ALL_CELLS, "on_policy", default_n_envs=256))
+# DQN / CQL / DDPG / BoundCQL are memory-light; 64 is ample.
+register(AlgoSpec("dqn", DQN, "discrete", _ALL_CELLS, "off_policy", default_n_envs=64))
+register(AlgoSpec("ddpg", DDPG, "continuous", _ALL_CELLS, "off_policy", default_n_envs=64))
+register(AlgoSpec("cql", CQL, "discrete", _ALL_CELLS, "off_policy", default_n_envs=64))
+register(
+    AlgoSpec(
+        "confounded_dqn", ConfoundedDQN, "discrete", _ALL_CELLS, "off_policy", default_n_envs=64
+    )
+)
+register(AlgoSpec("bound_cql", BoundCQL, "discrete", _ALL_CELLS, "off_policy", default_n_envs=64))
+# UCB-family maintains per-arm counts — tiny batches are sufficient.
+register(AlgoSpec("ucb", UCB, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))
+register(AlgoSpec("ucb_minus", UCBMinus, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))
+register(AlgoSpec("ucb_plus", UCBPlus, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))
+register(AlgoSpec("rct", RCT, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))

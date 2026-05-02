@@ -106,10 +106,31 @@ def _load_joined_data(
     return rows
 
 
+_MIN_SAMPLES_CV = 6
+_MIN_SAMPLES_STRATUM = 10
+
+
 def _r2_score(y_true: np.ndarray[Any, Any], y_pred: np.ndarray[Any, Any]) -> float:
     ss_res = float(np.sum((y_true - y_pred) ** 2))
     ss_tot = float(np.sum((y_true - y_true.mean()) ** 2))
     return 1.0 - ss_res / max(ss_tot, 1e-12)
+
+
+def _safe_cv_r2(
+    X: np.ndarray[Any, Any],  # noqa: N803
+    y: np.ndarray[Any, Any],
+    n_folds: int = 5,
+) -> float:
+    """Cross-validated R² with guard for small n. Returns NaN when n < _MIN_SAMPLES_CV."""
+    from sklearn.linear_model import LinearRegression  # type: ignore[import-untyped]
+    from sklearn.model_selection import cross_val_score  # type: ignore[import-untyped]
+
+    n = len(y)
+    if n < _MIN_SAMPLES_CV:
+        return float("nan")
+    cv = min(n_folds, n // 2)
+    scores = cross_val_score(LinearRegression(), X, y, cv=cv, scoring="r2")
+    return float(np.mean(scores))
 
 
 def make_headline_regression(
@@ -120,13 +141,13 @@ def make_headline_regression(
 
     Requires scikit-learn. Generates:
       - headline_regression_table.csv
+      - headline_stratified_r2.csv
       - headline_pure_divergence.pdf
       - headline_fitted.pdf
     """
     try:
         from sklearn.ensemble import RandomForestRegressor  # type: ignore[import-untyped]
         from sklearn.linear_model import LinearRegression  # type: ignore[import-untyped]
-        from sklearn.model_selection import cross_val_score  # type: ignore[import-untyped]
         from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
     except ImportError as e:
         raise ImportError(
@@ -165,14 +186,12 @@ def make_headline_regression(
     scaler = StandardScaler()
     X = scaler.fit_transform(X_raw)  # noqa: N806
 
-    # Linear regression
+    # Pooled linear regression
     lin = LinearRegression()
     lin.fit(X, y)
     y_pred_lin = lin.predict(X)
     r2_train = _r2_score(y, y_pred_lin)
-
-    cv_scores = cross_val_score(LinearRegression(), X, y, cv=min(5, len(rows) // 2), scoring="r2")
-    r2_cv = float(np.mean(cv_scores))
+    r2_cv = _safe_cv_r2(X, y)
 
     # Random forest
     rf = RandomForestRegressor(n_estimators=200, max_depth=8, random_state=0)
@@ -193,6 +212,25 @@ def make_headline_regression(
     ci_lo = np.percentile(boot_coefs, 2.5, axis=0)
     ci_hi = np.percentile(boot_coefs, 97.5, axis=0)
 
+    # Stratified R²: fit per-stratum linear model and report train + CV R²
+    strat_r2_rows: list[dict[str, object]] = []
+    for status in ["id", "partial_id", "non_id"]:
+        s_mask = np.array([s == status for s in id_statuses])
+        n_s = int(s_mask.sum())
+        if n_s < _MIN_SAMPLES_STRATUM:
+            strat_r2_rows.append(
+                {"stratum": status, "r2_train": float("nan"), "r2_cv": float("nan"), "n": n_s}
+            )
+            continue
+        lr_s = LinearRegression()
+        lr_s.fit(X[s_mask], y[s_mask])
+        r2_s_train = _r2_score(y[s_mask], lr_s.predict(X[s_mask]))
+        r2_s_cv = _safe_cv_r2(X[s_mask], y[s_mask])
+        strat_r2_rows.append(
+            {"stratum": status, "r2_train": r2_s_train, "r2_cv": r2_s_cv, "n": n_s}
+        )
+    strat_r2_rows.append({"stratum": "pooled", "r2_train": r2_train, "r2_cv": r2_cv, "n": n})
+
     # Save regression table
     table_path = output_dir / "headline_regression_table.csv"
     with table_path.open("w", newline="", encoding="utf-8") as f:
@@ -200,6 +238,13 @@ def make_headline_regression(
         writer.writerow(["feature", "coef", "ci_lo", "ci_hi", "importance_rf"])
         for i, feat in enumerate(feature_cols):
             writer.writerow([feat, lin.coef_[i], ci_lo[i], ci_hi[i], rf_importances[i]])
+
+    # Save stratified R² table
+    strat_path = output_dir / "headline_stratified_r2.csv"
+    with strat_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["stratum", "r2_train", "r2_cv", "n"])
+        writer.writeheader()
+        writer.writerows(strat_r2_rows)
 
     # Figure 1: G vs delta_tv + D_env_KS (per stratum)
     fig1, ax1 = plt.subplots(figsize=(7, 5))

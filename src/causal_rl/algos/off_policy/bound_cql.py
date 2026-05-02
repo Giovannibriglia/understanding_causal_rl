@@ -77,3 +77,9 @@ class BoundCQL(CQL):
             "kl": 0.0,
             "grad_norm": float(grad_norm),
         }
+
+    def n_informative_bounds(self) -> int:
+        if self._lower is None or self._upper is None:
+            return 0
+        span = self._upper - self._lower
+        return int((span < 1.0 - 1e-6).sum().item())
