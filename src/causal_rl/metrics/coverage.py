@@ -132,7 +132,7 @@ def fit_propensity_model(
         Trained :class:`PropensityModel`.
     """
     obs_dim = obs.shape[1]
-    model = PropensityModel(obs_dim, n_actions)
+    model = PropensityModel(obs_dim, n_actions).to(obs.device)
     model.train()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)

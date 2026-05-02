@@ -673,48 +673,6 @@ class BenchmarkRunner:
             self._run_offline()
         else:
             self._run_online()
-        if self.config.eval_perturbations != "off":
-            self._evaluate_perturbations(seed=self.config.seed + 90_000)
-
-    def _evaluate_perturbations(self, seed: int) -> None:
-        specs = TABULAR_DIAGONAL if self.env.is_discrete_action else CONTINUOUS_DIAGONAL
-        base_env = self._make_eval_env_instance()
-        obs_base, _ = base_env.reset(seed=seed)
-        actions, _ = self.algo.select_action(obs_base, deterministic=True)
-        _, base_rewards, _, _, _ = base_env.step(actions)
-        del base_rewards  # unused; step advances env state
-        for spec in specs:
-            eval_env = self._make_eval_env_instance()
-            if hasattr(eval_env, "apply_perturbation"):
-                eval_env.apply_perturbation(spec)  # type: ignore[attr-defined]
-            obs, _ = eval_env.reset(seed=seed)
-            act, _ = self.algo.select_action(obs, deterministic=True)
-            rets = torch.zeros((self._eval_n_envs,), device=self.device)
-            for _ in range(eval_env.horizon):
-                obs, reward, terminated, truncated, _ = eval_env.step(act)
-                rets += reward
-                if bool(torch.all(terminated | truncated)):
-                    break
-            dks = d_env_ks(
-                base_env, eval_env,
-                lambda x: self.algo.select_action(x, deterministic=True)[0],  # noqa: B023
-            )
-            self.perturbed_logger.write(
-                {
-                    "seed": self.config.seed,
-                    "cell": self.config.cell,
-                    "env": self.config.env_name,
-                    "algorithm": self.config.algorithm,
-                    "behaviour": self.config.behaviour,
-                    "alpha_conf": self.config.alpha_conf,
-                    "bias_strength": getattr(self.behaviour_policy, "bias_strength", 1.0),
-                    "eps_T": spec.eps_T,
-                    "eps_R": spec.eps_R,
-                    "eval_perturbed_return_mean": float(rets.mean().item()),
-                    "eval_perturbed_return_std": float(rets.std().item()),
-                    "D_env_KS": float(dks),
-                }
-            )
 
     def _discounted_returns(self, rewards: torch.Tensor, done: torch.Tensor) -> torch.Tensor:
         t_steps = rewards.shape[0]

@@ -63,11 +63,12 @@ def d_env_ks(
         actions = oracle_action_fn(obs)
 
         n = min(obs.shape[0], n_states)
+        obs_n = obs[:n]
         acts_n = actions[:n]
 
         # Draw n_samples interventional rewards from each env at the synced states.
-        r_train = env_train.sample_interventional(acts_n, n=n_samples)  # (n, n_samples)
-        r_target = env_target.sample_interventional(acts_n, n=n_samples)  # (n, n_samples)
+        r_train = env_train.sample_interventional(obs_n, acts_n, n=n_samples)  # (n, n_samples)
+        r_target = env_target.sample_interventional(obs_n, acts_n, n=n_samples)  # (n, n_samples)
 
         ks_vals = [_ks_distance(r_train[i], r_target[i]) for i in range(n)]
 
