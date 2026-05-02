@@ -20,10 +20,10 @@ class RewardMisalignedExplorer(BiasedExplorer):
         epsilon_mix: float = 0.05,
         requires_latent: bool = False,
     ) -> None:
+        super().__init__(bias_strength=bias_strength)
         self.n_actions = n_actions
         self.act_dim = act_dim
         self.beta = beta
-        self.bias_strength = bias_strength
         self.epsilon_mix = epsilon_mix
         self.requires_latent = requires_latent
         if self.n_actions is not None:
@@ -52,7 +52,9 @@ class RewardMisalignedExplorer(BiasedExplorer):
                 )
             action = (base + 0.03 * torch.randn_like(base)).clamp(0.0, 1.0)
             log_prob = torch.zeros((obs.shape[0],), device=obs.device)
-            return action, log_prob
+            return self._mix_with_uniform(
+                obs, action, log_prob, n_actions=self.n_actions, act_dim=self.act_dim
+            )
         if self.n_actions is None:
             msg = "Either n_actions or act_dim must be provided."
             raise ValueError(msg)
@@ -69,4 +71,6 @@ class RewardMisalignedExplorer(BiasedExplorer):
             probs = (1.0 - self.epsilon_mix) * probs + self.epsilon_mix * uniform
         dist = Categorical(probs=probs)
         action = dist.sample()
-        return action.unsqueeze(-1), dist.log_prob(action)
+        return self._mix_with_uniform(
+            obs, action.unsqueeze(-1), dist.log_prob(action), n_actions=self.n_actions
+        )

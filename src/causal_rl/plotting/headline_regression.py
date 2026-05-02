@@ -1,7 +1,7 @@
-"""Headline regression: G ≈ f(delta_tv, bound_width, coverage, D_env, ...).
+"""Headline regression: oracle gap G ≈ f(delta_tv, bound_width, coverage, D_env, ...).
 
 PRE-COMMITTED CLAIM (asserted in tests):
-  Across cells, the generalisation gap G is predicted by a sparse combination
+  Across cells, the oracle return gap G is predicted by a sparse combination
   of (a) within-env identifiability gap delta_tv, (b) natural-bound width when
   applicable, (c) coverage diagnostics (ess_ratio, overlap), and (d) the
   environment-level shift D_env_KS.
@@ -265,7 +265,7 @@ def make_headline_regression(
                 ax1.plot(xs, m * xs + b, color=color, linewidth=1.5)
 
     ax1.set_xlabel("Δ_TV + D_env_KS")
-    ax1.set_ylabel("G (generalisation gap)")
+    ax1.set_ylabel("G (oracle gap)")
     ax1.set_title(f"Pure divergence predictor  (overall R²={r2_cv:.2f})")
     ax1.legend()
     fig1.tight_layout()

@@ -1,0 +1,20 @@
+cells: [1, 2, 3, 4]
+envs:
+  - bandit-tabular-sepsis-v0
+algorithms:
+  - ucb
+  - ucb_minus
+  - ucb_plus
+  - rct
+behaviours:
+  - uniform
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+total_frames: 50000
+n_checkpoints_train: 50
+n_checkpoints_eval: 50
+env_horizons:
+  bandit-tabular-sepsis-v0: 1
+alpha_conf: 0.0
+alpha_conf_sweep: [0.0, 1.0, 2.0, 4.0]
+n_envs: 64
+eval_perturbations: "off"

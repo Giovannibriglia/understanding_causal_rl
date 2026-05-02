@@ -9,6 +9,7 @@ from torch import Tensor
 
 from causal_rl.envs.base import CausalEnv
 from causal_rl.envs.cell_config import CELL_CONFIGS
+from causal_rl.envs.perturbations import PerturbationSpec, perturb_tabular_rewards, perturb_tabular_transition
 from causal_rl.utils.device import get_device
 
 OBS_STATES: Final[int] = 720
@@ -121,6 +122,22 @@ class TabularSepsisEnv(CausalEnv):
             obs = torch.cat([obs, z], dim=-1)
         return obs
 
+    def _infer_latent_state_from_obs(self, state: Tensor | None) -> Tensor:
+        if state is None:
+            return self._latent_state
+        s = state.to(torch.float32)
+        hr = torch.round(s[:, 0] * 2.0).to(torch.long).clamp(0, 2)
+        sbp = torch.round(s[:, 1] * 4.0).to(torch.long).clamp(0, 4)
+        oxygen = torch.round(s[:, 2] * 2.0).to(torch.long).clamp(0, 2)
+        glucose = torch.round(s[:, 3]).to(torch.long).clamp(0, 1)
+        tx = torch.round(s[:, 4] * 7.0).to(torch.long).clamp(0, 7)
+        obs_idx = hr + 3 * sbp + 15 * oxygen + 45 * glucose + 90 * tx
+        if self.config.expose_z and s.shape[1] >= 6:
+            z = torch.round(s[:, 5]).to(torch.long).clamp(0, 1)
+        else:
+            z = (self._latent_state[: s.shape[0]] // OBS_STATES).to(torch.long).clamp(0, 1)
+        return z * OBS_STATES + obs_idx
+
     def reset(self, seed: int | None = None) -> tuple[Tensor, dict[str, Tensor]]:
         if seed is not None:
             torch.manual_seed(seed)
@@ -188,7 +205,7 @@ class TabularSepsisEnv(CausalEnv):
         p_obs_pos = p_obs_pos.clamp(1e-3, 1.0 - 1e-3)
         return torch.stack([1.0 - p_obs_pos, p_obs_pos], dim=-1)
 
-    def sample_interventional(self, action: Tensor, n: int) -> Tensor:
+    def sample_interventional(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples from P(R | do(A=a), observable_state).
 
         Marginalises over Z when Z is not exposed to the agent; conditions on
@@ -196,14 +213,15 @@ class TabularSepsisEnv(CausalEnv):
         values in {-1, +1}.
         """
         a = action.view(-1).to(torch.long).clamp(0, N_ACTIONS - 1)
+        latent_state = self._infer_latent_state_from_obs(state)
         batch = a.shape[0]
 
         if self.config.expose_z:
             # Z is observed: condition on it directly (no marginalisation).
-            p_do = self.reward_probs[self._latent_state, a, 1]  # (batch,)
+            p_do = self.reward_probs[latent_state, a, 1]  # (batch,)
         else:
             # Z is hidden: marginalise uniformly over Z ∈ {0, 1}.
-            s_obs = self._latent_state % OBS_STATES
+            s_obs = latent_state % OBS_STATES
             p0 = self.reward_probs[s_obs, a, 1]
             p1 = self.reward_probs[OBS_STATES + s_obs, a, 1]
             p_do = 0.5 * p0 + 0.5 * p1  # (batch,)
@@ -211,7 +229,7 @@ class TabularSepsisEnv(CausalEnv):
         samples = torch.bernoulli(p_do.unsqueeze(-1).expand(batch, n))
         return torch.where(samples == 1, torch.ones_like(samples), -torch.ones_like(samples))
 
-    def sample_observational(self, action: Tensor, n: int) -> Tensor:
+    def sample_observational(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples from P(R | A=a, observable_state).
 
         When alpha_conf=0 (no selection bias from the behaviour policy)
@@ -228,8 +246,9 @@ class TabularSepsisEnv(CausalEnv):
         Returns shape (n_envs, n) with values in {-1, +1}.
         """
         a = action.view(-1).to(torch.long).clamp(0, N_ACTIONS - 1)
+        latent_state = self._infer_latent_state_from_obs(state)
         batch = a.shape[0]
-        mu_base = self.reward_probs[self._latent_state, a, 1]  # (batch,)
+        mu_base = self.reward_probs[latent_state, a, 1]  # (batch,)
 
         if self.alpha_conf <= 0.0:
             p_obs = mu_base
@@ -251,3 +270,7 @@ class TabularSepsisEnv(CausalEnv):
 
     def close(self) -> None:
         return None
+
+    def apply_perturbation(self, spec: PerturbationSpec) -> None:
+        self.transition = perturb_tabular_transition(self.transition, spec.eps_T, seed=0)
+        self.reward_probs = perturb_tabular_rewards(self.reward_probs, spec.eps_R)

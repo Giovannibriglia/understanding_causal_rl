@@ -59,7 +59,7 @@ python scripts/run_single.py \
 
 `run_single.py` parameters:
 
-- `cell`: causal cell (`1..8`).
+- `cell`: causal cell (`1..4`).
 - `env`: registered env id.
 - `algorithm`: registered algorithm id.
 - `behaviour`: registered behaviour-policy id.
@@ -84,9 +84,9 @@ Constraint:
 
 ## Expected outputs
 
-- `outputs/{config_name}_{timestamp}/learning_curves_cell{1..8}.pdf`
-- `outputs/{config_name}_{timestamp}/gap_curves_cell{1..8}.pdf`
-- `outputs/{config_name}_{timestamp}/headline_gap_vs_generalisation.pdf`
+- `outputs/{config_name}_{timestamp}/tabular/*.pdf`
+- `outputs/{config_name}_{timestamp}/continuous/*.pdf`
+- `outputs/{config_name}_{timestamp}/headline_gap_vs_oracle.pdf`
 - `outputs/{config_name}_{timestamp}/cell_grid_8x4.pdf`
 - `outputs/{config_name}_{timestamp}/ablations_*.pdf`
 

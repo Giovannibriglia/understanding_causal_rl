@@ -8,7 +8,7 @@ PyTorch-first vectorised benchmark suite for causal RL identifiability studies.
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-black.svg)](#)
 [![codecov](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)](#)
 
-This repository is the experimental companion to *Debugging Reinforcement Learning through a Simple Causal Lens*. It benchmarks policies across the paper’s eight causal cells using controllable medical environments and logs the empirical identifiability gap \(\Delta_\varphi\), with TV as the primary operational metric.
+This repository is the experimental companion to *Debugging Reinforcement Learning through a Simple Causal Lens*. It benchmarks policies across four causal cells using controllable medical environments and logs the empirical identifiability gap \(\Delta_\varphi\), with TV as the primary operational metric.
 
 ## Quickstart
 
@@ -113,17 +113,24 @@ python scripts/run_full_matrix.py --config paper --n-workers 4 --n-gpus 1
 | `eval_perturbations` | `true`/`false` — set `false` to halve sweep wall-time |
 | `seeds` | List of random seeds |
 
-## The eight cells
-| Cell | expose_Z | expose_U | pi_b_known | on_policy |
-|---|---:|---:|---:|---:|
-| 1 | 1 | 0 | 1 | 1 |
-| 2 | 0 | 0 | 1 | 1 |
-| 3 | 1 | 0 | 1 | 0 |
-| 4 | 0 | 0 | 1 | 0 |
-| 5 | 1 | 0 | 0 | 0 |
-| 6 | 0 | 0 | 0 | 0 |
-| 7 | 1 | 1 | 0 | 0 |
-| 8 | 0 | 1 | 0 | 0 |
+## The four cells
+| cell | shorthand | expose_Z | pi_b_known | typical id_status |
+| --- | --- | --- | --- | --- |
+| 1 | `mdp_known` | True | True | `id` |
+| 2 | `mdp_unknown` | True | False | `id` / `partial_id` |
+| 3 | `pomdp_known` | False | True | `partial_id` |
+| 4 | `pomdp_unknown` | False | False | `partial_id` / `non_id` |
+
+## Seven figures, six commands
+- `identifiability_panel.pdf`
+- `bandit_regret.pdf`
+- `bound_width_panel.pdf`
+- `bias_sweep.pdf`
+- `sample_sweep.pdf`
+- `headline_pure_divergence.pdf`
+- `headline_fitted.pdf`
+
+See `docs/figures.md` for the full mapping from figure to claim.
 
 ## Behaviour-policy families
 `uniform` is the unbiased baseline with full support over actions.

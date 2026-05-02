@@ -12,10 +12,10 @@ from causal_rl.plotting.style import apply_style, figure
 def make_headline_scatter(
     results_dir: Path, output_dir: Path, env_prefix: str | None = None
 ) -> None:
-    """Plot final gap vs generalisation as mean points per (algorithm, behaviour).
+    """Plot final gap vs oracle gap as mean points per (algorithm, behaviour).
 
     For each (algorithm, behaviour) compute the mean across runs/seeds of
-    x = delta_tv and y = eval_return_mean - eval_holdout_return_mean.
+    x = delta_tv and y = eval_oracle_return_mean - eval_return_mean.
 
     Plot faint individual seed points, then an anisotropic ellipse (width=std_x,
     height=std_y) with alpha=0.3 to visualise dispersion, and the mean marker on
@@ -50,7 +50,7 @@ def make_headline_scatter(
             algo = str(r.get("algorithm", "")).strip()
             beh = str(r.get("behaviour_policy", "")).strip()
             x = float(r["delta_tv"])
-            y = float(r["eval_return_mean"]) - float(r["eval_holdout_return_mean"])
+            y = float(r["eval_oracle_return_mean"]) - float(r["eval_return_mean"])
         except (ValueError, KeyError):
             continue
         groups.setdefault((algo, beh), []).append((x, y))
@@ -60,8 +60,8 @@ def make_headline_scatter(
     if not groups:
         ax.set_xlabel(r"Final $\widehat{\Delta}_{\mathrm{TV}}$")
         ax.set_ylabel("Train - Holdout Return")
-        pdf = output_dir / "headline_gap_vs_generalisation.pdf"
-        png = output_dir / "headline_gap_vs_generalisation.png"
+        pdf = output_dir / "headline_gap_vs_oracle.pdf"
+        png = output_dir / "headline_gap_vs_oracle.png"
         fig.savefig(pdf, bbox_inches="tight")
         fig.savefig(png, dpi=300, bbox_inches="tight")
         plt.close(fig)
@@ -173,8 +173,8 @@ def make_headline_scatter(
     ax.set_xlabel(r"Final $\widehat{\Delta}_{\mathrm{TV}}$")
     ax.set_ylabel("Train - Holdout Return")
 
-    pdf = output_dir / "headline_gap_vs_generalisation.pdf"
-    png = output_dir / "headline_gap_vs_generalisation.png"
+    pdf = output_dir / "headline_gap_vs_oracle.pdf"
+    png = output_dir / "headline_gap_vs_oracle.png"
     fig.savefig(pdf, bbox_inches="tight")
     fig.savefig(png, dpi=300, bbox_inches="tight")
     plt.close(fig)

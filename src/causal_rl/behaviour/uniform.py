@@ -18,6 +18,7 @@ class UniformExplorer(BiasedExplorer):
         act_dim: int | None = None,
         requires_latent: bool | None = None,
     ) -> None:
+        super().__init__(bias_strength=1.0)
         del requires_latent
         self.n_actions = n_actions
         self.act_dim = act_dim
