@@ -519,10 +519,10 @@ class BenchmarkRunner:
             conf_buf: list[float] = []
             outcome_buf: list[float] = []
             with torch.no_grad():
-                obs, _ = eval_env.reset(seed=seed)
+                obs, info = eval_env.reset(seed=seed)
                 for _ in range(eval_env.horizon):
                     action, log_prob = self.algo.select_action(obs, deterministic=True)
-                    next_obs, reward, terminated, truncated, _ = eval_env.step(action)
+                    next_obs, reward, terminated, truncated, info = eval_env.step(action)
                     step_metrics = compute_gap_metrics(
                         eval_env,
                         obs,
@@ -536,7 +536,8 @@ class BenchmarkRunner:
                         totals[key] = totals.get(key, 0.0) + float(value)
 
                     # Dual-policy delta_tv: also measure under behavior policy action
-                    beh_action, _ = self.behaviour_policy.select_action(obs)
+                    latent = info.get("latent_U") if isinstance(info, dict) else None
+                    beh_action, _ = self.behaviour_policy.select_action(obs, latent=latent)
                     beh_step_metrics = compute_gap_metrics(
                         eval_env,
                         obs,

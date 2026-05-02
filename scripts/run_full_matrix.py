@@ -222,6 +222,13 @@ def main() -> None:
             )
         if n_gpus > 0:
             devices = [f"cuda:{i}" for i in range(n_gpus)]
+            # Warn if more workers than GPUs — each GPU will serve multiple workers
+            # simultaneously, which can exhaust VRAM.
+            if args.n_workers > n_gpus:
+                print(
+                    f"Warning: {args.n_workers} workers share {n_gpus} GPU(s). "
+                    f"Consider --n-workers <= {n_gpus} to avoid OOM."
+                )
     elif args.device is not None:
         devices = [args.device]
 
