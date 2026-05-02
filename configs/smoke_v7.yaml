@@ -1,0 +1,24 @@
+# v7 acceptance smoke: includes alpha_conf sweep and bias_strength variation
+# to populate all three id_status strata (id, partial_id, non_id).
+# ~10 minutes on CPU at n_workers=4.
+cells: [1, 2, 3, 4]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - dqn
+  - cql
+behaviours:
+  - uniform
+  - reward_aligned        # depends_on_u=True → triggers non_id at C4 + alpha_conf>0
+seeds: [0, 1, 2]
+total_frames: 2000
+n_checkpoints_train: 5
+n_checkpoints_eval: 5
+env_horizons:
+  tabular-sepsis-v0: 20
+offline_transitions: 4000
+offline_updates: 400
+alpha_conf_sweep: [0.0, 2.0]
+bias_strengths: [0.5, 1.0]
+n_envs: 16
+eval_perturbations: false

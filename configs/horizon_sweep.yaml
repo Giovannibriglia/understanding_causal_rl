@@ -1,0 +1,27 @@
+# Horizon-impact study (Tier 1.5).
+# Same cell × algo × behaviour grid as smoke, swept over multiple horizons.
+# total_frames is set per horizon via total_frames_per_episode * horizon, so
+# the number of episodes is roughly constant across horizons.
+# ~30 minutes on CPU at n_workers=4.
+cells: [1, 2, 3, 4]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - dqn
+  - cql
+  - a2c
+behaviours:
+  - uniform
+  - reward_aligned
+seeds: [0, 1, 2]
+total_frames_per_episode: 200
+n_checkpoints_train: 5
+n_checkpoints_eval: 5
+horizon_sweep: [5, 10, 20, 40, 80]
+env_horizons:
+  tabular-sepsis-v0: 20
+offline_transitions: 8000
+offline_updates: 800
+alpha_conf: 0.0
+n_envs: 16
+eval_perturbations: false

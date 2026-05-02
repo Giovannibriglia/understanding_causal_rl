@@ -15,6 +15,7 @@ from causal_rl.algos.registry import make as make_algo
 from causal_rl.behaviour.registry import BEHAVIOURS
 from causal_rl.behaviour.registry import make as make_behaviour
 from causal_rl.envs.base import CausalEnv
+from causal_rl.envs.bandit_view import BanditView
 from causal_rl.envs.cell_config import CELL_CONFIGS
 from causal_rl.envs.continuous_ward import ContinuousWardEnv
 from causal_rl.envs.perturbations import (
@@ -42,6 +43,7 @@ from causal_rl.metrics.d_env import d_env_ks
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
 from causal_rl.runner.collector import collect_offline_dataset
 from causal_rl.runner.csv_logger import CSVLogger
+from causal_rl.runner.scheduling import checkpoint_ticks
 from causal_rl.runner.schemas import EVAL_COLUMNS, PERTURBED_COLUMNS, TRAIN_COLUMNS
 from causal_rl.utils.device import get_device
 from causal_rl.utils.git import get_git_commit
@@ -67,6 +69,7 @@ class RunnerConfig:
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
     alpha_conf: float = 0.0
+    bias_strength: float = 1.0
     eval_n_envs: int | None = None
     n_bootstrap: int = 200
     n_samples_gap: int = 200
@@ -101,14 +104,37 @@ class BenchmarkRunner:
         obs_dim = self.env.obs_shape[0]
         if self.env.is_discrete_action:
             n_actions = 8
-            self.algo = make_algo(config.algorithm, obs_dim=obs_dim, n_actions=n_actions)
-            self.behaviour_policy = make_behaviour(
-                config.behaviour, n_actions=n_actions, requires_latent=beh_depends_on_u
+            algo_kwargs: dict[str, object] = {"obs_dim": obs_dim, "n_actions": n_actions}
+            if config.algorithm in {"ucb_plus", "ucb_minus"} and isinstance(self.env, BanditView):
+                actions_obs, rewards_obs = self.env.collect_observational_data(
+                    n_samples=5000,
+                    alpha_conf=config.alpha_conf,
+                    seed=config.seed,
+                )
+                if config.algorithm == "ucb_minus":
+                    means: list[float] = []
+                    for a in range(n_actions):
+                        mask = actions_obs == a
+                        means.append(
+                            float(rewards_obs[mask].mean().item()) if bool(mask.any()) else 0.5
+                        )
+                    algo_kwargs["observational_means"] = means
+                else:  # ucb_plus
+                    bounds = natural_bounds(
+                        actions_obs, rewards_obs, n_actions=n_actions, n_bootstrap=200
+                    )
+                    algo_kwargs["lower_bounds"] = [bounds[a].lower for a in range(n_actions)]
+                    algo_kwargs["upper_bounds"] = [bounds[a].upper for a in range(n_actions)]
+            self.algo = make_algo(config.algorithm, **algo_kwargs)
+            self.behaviour_policy = self._make_behaviour_with_bias(
+                config.behaviour,
+                n_actions=n_actions,
+                requires_latent=beh_depends_on_u,
             )
         else:
             act_dim = self.env.act_shape[0]
             self.algo = make_algo(config.algorithm, obs_dim=obs_dim, act_dim=act_dim)
-            self.behaviour_policy = make_behaviour(
+            self.behaviour_policy = self._make_behaviour_with_bias(
                 config.behaviour,
                 act_dim=act_dim,
                 requires_latent=beh_depends_on_u,
@@ -150,6 +176,13 @@ class BenchmarkRunner:
         self._coverage_metrics: dict[str, float] = {}
         self._bound_metrics: dict[str, float] = {}
         self._propensity_calibration_ece: float = float("nan")
+
+    def _make_behaviour_with_bias(self, name: str, **kwargs: object) -> object:
+        # Pass bias_strength only when the behaviour constructor accepts it.
+        try:
+            return make_behaviour(name, bias_strength=self.config.bias_strength, **kwargs)
+        except TypeError:
+            return make_behaviour(name, **kwargs)
 
     def _move_algo_to_device(self) -> None:
         for value in vars(self.algo).values():
@@ -331,8 +364,10 @@ class BenchmarkRunner:
         }
 
     def _compute_bound_metrics(self, actions: torch.Tensor, rewards: torch.Tensor) -> None:
-        # Bound metrics are only meaningful for bound_cql which explicitly uses them.
-        if self.config.algorithm != "bound_cql" or not self.env.is_discrete_action:
+        # Compute Bareinboim natural-bound metrics for any discrete-action run.
+        # The values are only acted on by bound_cql / ucb_plus, but they are
+        # informative covariates for the headline regression in every run.
+        if not self.env.is_discrete_action or actions.numel() == 0:
             self._bound_metrics = {
                 "bound_width_mean": float("nan"),
                 "bound_width_max": float("nan"),
@@ -343,9 +378,12 @@ class BenchmarkRunner:
         rewards_01 = ((rewards.view(-1).float() + 1.0) / 2.0).clamp(0.0, 1.0)
         bounds = natural_bounds(acts, rewards_01, n_actions=8, n_bootstrap=200)
         widths = [r.upper - r.lower for r in bounds.values()]
-        mu_hats = [r.lower / max(r.p_a, 1e-8) for r in bounds.values()]
-        mu_star = max(mu_hats)
-        n_inf = sum(1 for r in bounds.values() if r.upper < mu_star)
+        # Bareinboim's "informative" criterion: an arm's upper bound lies below
+        # the best lower bound across arms (so the arm can be excluded as
+        # globally suboptimal).  The previous mu_lower/p_a denominator collapsed
+        # in the limit of small p_a and produced an almost-always-zero indicator.
+        mu_lower_max = max(r.lower for r in bounds.values())
+        n_inf = sum(1 for r in bounds.values() if r.upper < mu_lower_max)
         self._bound_metrics = {
             "bound_width_mean": float(sum(widths) / len(widths)),
             "bound_width_max": float(max(widths)),
@@ -690,8 +728,12 @@ class BenchmarkRunner:
         episode = 0
         ep_return = torch.zeros((self.config.n_envs,), device=self.device)
         rollout_horizon = self.config.rollout_horizon or self.env.horizon
-        train_interval = max(1, self.config.total_frames // max(1, self.config.n_checkpoints_train))
-        eval_interval = max(1, self.config.total_frames // max(1, self.config.n_checkpoints_eval))
+        train_ticks = checkpoint_ticks(
+            self.config.total_frames, self.config.n_checkpoints_train
+        )
+        eval_ticks = checkpoint_ticks(
+            self.config.total_frames, self.config.n_checkpoints_eval
+        )
         latest_update_metrics: dict[str, float] = {}
         obs_buf: list[torch.Tensor] = []
         act_buf: list[torch.Tensor] = []
@@ -759,14 +801,14 @@ class BenchmarkRunner:
                 episode += 1
                 ep_return = torch.zeros_like(ep_return)
                 obs, info = self.env.reset()
-            if tick % train_interval == 0 or tick == self.config.total_frames:
+            if tick in train_ticks:
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + tick + 40_000)
                 self._last_gap_metrics = gap_metrics
                 metrics_for_log = {**latest_update_metrics, **gap_metrics}
                 self._log_train(
                     step=tick, episode=episode, returns=returns_snapshot, metrics=metrics_for_log
                 )
-            if tick % eval_interval == 0 or tick == self.config.total_frames:
+            if tick in eval_ticks:
                 eval_returns = self._evaluate_policy(seed=self.config.seed + tick + 10_000)
                 oracle_returns = self._evaluate_oracle(seed=self.config.seed + tick + 30_000)
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + tick + 50_000)
@@ -794,22 +836,37 @@ class BenchmarkRunner:
             expose_latent=self.behaviour_policy.depends_on_u,
             seed=self.config.seed,
         )
-        if buffer.behaviour_logprob is not None and buffer.size > 0:
-            self._compute_coverage_metrics(buffer.behaviour_logprob[: buffer.size])
         self._compute_bound_metrics(buffer.action[: buffer.size], buffer.reward[: buffer.size])
-        if (not self.cell_cfg.pi_b_known) and self.env.is_discrete_action:
+        if (not self.cell_cfg.pi_b_known) and self.env.is_discrete_action and buffer.size > 0:
+            # π_b is hidden — fit a propensity model and use its log-prob of
+            # the action TAKEN to seed coverage metrics.  Without this, the
+            # buffer's behaviour_logprob is all-zeros and min_propensity
+            # collapses to exp(0) = 1.0 (degenerate).
             model: PropensityModel = fit_propensity_model(
                 buffer.obs[: buffer.size], buffer.action[: buffer.size], n_actions=8
             )
             with torch.no_grad():
-                pred_lp = model(buffer.obs[: buffer.size])
-            self._propensity_calibration_ece = expected_calibration_error(
-                pred_lp, buffer.action[: buffer.size].view(-1), n_bins=10
+                pred_lp_per_action = model(buffer.obs[: buffer.size])  # (N, 8)
+            actions_taken = buffer.action[: buffer.size].view(-1, 1).long()
+            learned_log_probs = pred_lp_per_action.gather(1, actions_taken).squeeze(-1)
+            self._compute_coverage_metrics(learned_log_probs)
+            # The metrics.calibration ECE expects a 1-D probability per
+            # observation: pass the predicted prob of the action TAKEN.
+            ece = expected_calibration_error(
+                pred_lp_per_action.gather(1, actions_taken).squeeze(-1).exp(),
+                (buffer.reward[: buffer.size].view(-1) > 0.0).float(),
+                n_bins=10,
             )
+            self._propensity_calibration_ece = (
+                float(ece.item()) if hasattr(ece, "item") else float(ece)
+            )
+        elif buffer.behaviour_logprob is not None and buffer.size > 0:
+            self._compute_coverage_metrics(buffer.behaviour_logprob[: buffer.size])
+            self._propensity_calibration_ece = float("nan")
         episode = 0
         total_updates = self.config.total_frames
-        train_interval = max(1, total_updates // max(1, self.config.n_checkpoints_train))
-        eval_interval = max(1, total_updates // max(1, self.config.n_checkpoints_eval))
+        train_ticks = checkpoint_ticks(total_updates, self.config.n_checkpoints_train)
+        eval_ticks = checkpoint_ticks(total_updates, self.config.n_checkpoints_eval)
         for step in range(1, total_updates + 1):
             batch_obj = buffer.sample(self.config.batch_size)
             # Use the most recently computed gap metric as the sensitivity signal
@@ -824,7 +881,7 @@ class BenchmarkRunner:
                 "delta_tv": delta_tv_val,
             }
             metrics = self.algo.update(batch)  # type: ignore[arg-type]
-            if (step % train_interval == 0) or (step == total_updates):
+            if step in train_ticks:
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + step + 40_000)
                 self._last_gap_metrics = gap_metrics
                 if self.cell_cfg.pi_b_known:
@@ -848,7 +905,7 @@ class BenchmarkRunner:
                     returns=batch_obj.reward,
                     metrics=metrics_for_log,
                 )
-            if (step % eval_interval == 0) or (step == total_updates):
+            if step in eval_ticks:
                 eval_returns = self._evaluate_policy(seed=self.config.seed + step + 10_000)
                 oracle_returns = self._evaluate_oracle(seed=self.config.seed + step + 30_000)
                 gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + step + 50_000)

@@ -65,5 +65,10 @@ class UCBPlus(UCB):
         return action, log_prob
 
     def n_informative_bounds(self) -> int:
-        span = self._upper - self._lower
-        return int((span < 1.0 - 1e-6).sum().item())
+        # An arm is informative when its upper bound is strictly below the
+        # best lower bound across arms — i.e., the arm is provably suboptimal
+        # under the natural bounds (Bareinboim Thm 9.2.2).
+        if self._lower is None or self._upper is None:
+            return 0
+        mu_lower_max = float(self._lower.max().item())
+        return int((self._upper < mu_lower_max - 1e-9).sum().item())

@@ -46,8 +46,7 @@ _TRAIN_COLS = ["step", "episode", "wall_time", "cell", "env_name", "env_fidelity
                "delta_tv_marginal", "delta_tv_conditional", "min_propensity",
                "ess_ratio", "overlap_at_1e-2", "tail_mass_top10pct",
                "propensity_calibration_ece", "bound_width_mean", "bound_width_max",
-               "n_arms_with_informative_bound", "delta_tv_train_policy",
-               "delta_tv_train_policy_ci_lo", "delta_tv_train_policy_ci_hi",
+               "n_arms_with_informative_bound",
                "alpha_conf", "bias_strength", "expose_z", "pi_b_known",
                "beh_depends_on_u", "id_status", "lr", "grad_norm"]
 

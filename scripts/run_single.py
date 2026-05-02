@@ -32,6 +32,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--offline-transitions", type=int, default=50_000)
     parser.add_argument("--offline-updates", type=int, default=2_000)
     parser.add_argument("--alpha-conf", type=float, default=0.0)
+    parser.add_argument(
+        "--bias-strength",
+        type=float,
+        default=1.0,
+        help="Bias strength multiplier for the behaviour policy (where applicable).",
+    )
     parser.add_argument("--n-eval-episodes", type=int, default=5)
     parser.add_argument(
         "--eval-perturbations",
@@ -69,6 +75,7 @@ def main() -> None:
         offline_transitions=args.offline_transitions,
         offline_updates=args.offline_updates,
         alpha_conf=args.alpha_conf,
+        bias_strength=args.bias_strength,
         oracle=args.oracle,
         n_eval_episodes=args.n_eval_episodes,
         eval_perturbations=args.eval_perturbations,

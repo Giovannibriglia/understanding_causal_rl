@@ -29,8 +29,12 @@ class RunConfigModel(BaseModel):
     behaviour: str
     seed: int
     total_frames: int = 50_000
-    n_checkpoints_train: int = 50
-    n_checkpoints_eval: int = 10
+    n_checkpoints_train: int = Field(
+        50, ge=2, description="Min 2; always include first and last."
+    )
+    n_checkpoints_eval: int = Field(
+        10, ge=2, description="Min 2; always include first and last."
+    )
     horizon: int | None = None
     rollout_horizon: int | None = None
     output: str
@@ -52,13 +56,20 @@ class MatrixConfig(BaseModel):
     behaviours: list[str]
     seeds: list[int] | None = None
     total_frames: int = 20_000
-    n_checkpoints_train: int = 50
-    n_checkpoints_eval: int = 10
+    total_frames_per_episode: int | None = None
+    n_checkpoints_train: int = Field(
+        50, ge=2, description="Min 2; always include first and last."
+    )
+    n_checkpoints_eval: int = Field(
+        10, ge=2, description="Min 2; always include first and last."
+    )
     env_horizons: dict[str, int] = Field(default_factory=dict)
+    horizon_sweep: list[int] | None = None
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
     alpha_conf: float = 0.0
     alpha_conf_sweep: list[float] | None = None
+    bias_strengths: list[float] | None = None
     n_envs: int = 64
     eval_n_envs: int | None = None
     n_eval_episodes: int = 5

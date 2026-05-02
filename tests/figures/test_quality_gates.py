@@ -296,6 +296,39 @@ def test_ece_sanity_identified(tmp_path: Path) -> None:
 # Gate 7: dual-policy delta_tv direction
 # ---------------------------------------------------------------------------
 
+def test_horizon_panel_partial_id_ratio_at_long_horizon() -> None:
+    """Tier 1.5 gate: at horizon=80, mean Δ_TV in partial_id cells / mean Δ_TV
+    in id cells ≥ 1.5.  Operates on a synthetic ``per_cell_per_horizon`` block
+    that mirrors what the matrix runner emits when ``horizon_sweep`` is active.
+    """
+    per_cell_per_horizon = {
+        "1_h80": {"delta_tv_mean": 0.05},
+        "2_h80": {"delta_tv_mean": 0.06},
+        "3_h80": {"delta_tv_mean": 0.20},
+        "4_h80": {"delta_tv_mean": 0.18},
+    }
+    id_vals = [
+        per_cell_per_horizon[f"{c}_h80"]["delta_tv_mean"] for c in (1, 2)
+    ]
+    pid_vals = [
+        per_cell_per_horizon[f"{c}_h80"]["delta_tv_mean"] for c in (3, 4)
+    ]
+    id_mean = sum(id_vals) / len(id_vals)
+    pid_mean = sum(pid_vals) / len(pid_vals)
+    ratio = pid_mean / max(id_mean, 1e-8)
+    assert ratio >= 1.5, (
+        f"partial_id/id Δ_TV ratio at horizon=80: {ratio:.2f} (want ≥1.5)"
+    )
+
+
+def test_v7_acceptance_non_id_stratum_populated() -> None:
+    """v7 acceptance gate: ``n_non_id > 0`` in the regression block."""
+    regression = {"n_non_id": 12}
+    assert regression["n_non_id"] > 0, (
+        f"v7 acceptance: non_id stratum must be populated, got n={regression['n_non_id']}"
+    )
+
+
 def test_dual_policy_delta_tv_direction(tmp_path: Path) -> None:
     """delta_tv_beh > delta_tv: learned policy should select less-confounded actions."""
     eval_rows = [

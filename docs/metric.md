@@ -13,7 +13,8 @@ Three forces shape curves over training:
 
 Dual logging:
 - `delta_tv` (deterministic eval policy) for cross-algorithm comparability,
-- `delta_tv_train_policy` (stochastic train policy) for occupancy-shift dynamics.
+- `delta_tv_beh` (behaviour policy under the same eval seeds) as a reference
+  point for the occupancy-shift contribution.
 
 Expected shapes:
 - `id`: decays toward ~0,
