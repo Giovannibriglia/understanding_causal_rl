@@ -1,0 +1,44 @@
+# Paper-companion smoke: minimal config that populates ALL THREE id_status strata
+# by including alpha_conf > 0 with U-dependent behaviour.
+# Wall time ~4 min on 4 workers (CPU).
+#
+# Purpose: verify stratified R² pattern and non_id stratum BEFORE committing
+# to the full 12-hour paper run.  Run as:
+#
+#   python scripts/run_full_matrix.py --config paper_smoke --n-workers 4
+#
+# Expected: summary.json shows n_non_id >= 50, claim_5 verdict = "supported".
+
+cells: [1, 2, 3, 4]
+
+envs:
+  - tabular-sepsis-v0
+
+algorithms:
+  - dqn
+  - cql
+  - bound_cql   # ensures bound_width features are non-NaN for at least one algo
+  - a2c
+
+behaviours:
+  - uniform        # depends_on_u=False → id stratum at alpha_conf=0
+  - reward_aligned # depends_on_u=True  → non_id stratum at alpha_conf=2 + cell 4
+
+seeds: [0, 1, 2, 3]
+
+total_frames: 8000
+n_checkpoints_train: 20
+n_checkpoints_eval: 10
+
+env_horizons:
+  tabular-sepsis-v0: 20
+
+offline_transitions: 20000
+offline_updates: 2000
+
+# CRITICAL: alpha_conf_sweep populates the non_id stratum.
+# At alpha_conf=2.0 + reward_aligned (depends_on_u=True) + cell 4 → non_id.
+alpha_conf_sweep: [0.0, 2.0]
+
+n_envs: 32
+eval_perturbations: true   # compute D_env_KS for the regression

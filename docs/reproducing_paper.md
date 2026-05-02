@@ -31,6 +31,21 @@ python scripts/run_full_matrix.py --config bias_sweep --n-workers 4
 python scripts/run_full_matrix.py --config sample_sweep --n-workers 4
 ```
 
+## Step 2b — Inspect summary (auto-generated)
+
+`run_full_matrix.py` automatically writes `results/<run_id>/summary.json`
+after every run (whether or not runs failed).  It contains per-cell / per-algo
+aggregates, the headline regression R² values, and five pre-committed claim
+verdicts.  To regenerate it manually:
+
+```bash
+python scripts/make_summary.py --results results/<run_id>
+```
+
+The `claims_evidence` block in `summary.json` shows whether the five pre-
+committed claims are `supported`, `refuted`, `ambiguous`, or `not_yet_testable`.
+Proceed to the paper run only once claim 1–3 read `supported` on `paper_smoke`.
+
 ## Step 3 — Build all figures
 
 ```bash

@@ -62,8 +62,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# Algorithms whose trained policy is mathematically independent of the offline
+# behaviour policy (on-policy learners collect their own data; bandit methods
+# treat every episode as i.i.d.). Running them with multiple behaviours would
+# produce identical results and waste compute.
+_BEHAVIOUR_INDEPENDENT: frozenset[str] = frozenset({"ppo", "a2c", "ucb", "ucb_minus", "ucb_plus", "rct"})
+
+
 def build_runs(config: MatrixConfig) -> list[tuple[int, str, str, str]]:
     runs: list[tuple[int, str, str, str]] = []
+    # Track (cell, env, algo) tuples already added for behaviour-independent algos
+    # so only the first behaviour in the YAML is included.
+    seen_beh_independent: set[tuple[int, str, str]] = set()
     for cell, env, algo, beh in itertools.product(
         config.cells, config.envs, config.algorithms, config.behaviours
     ):
@@ -74,6 +84,11 @@ def build_runs(config: MatrixConfig) -> list[tuple[int, str, str, str]]:
             continue
         if env == "tabular-sepsis-v0" and spec.action_type == "continuous":
             continue
+        if algo in _BEHAVIOUR_INDEPENDENT:
+            key = (cell, env, algo)
+            if key in seen_beh_independent:
+                continue
+            seen_beh_independent.add(key)
         runs.append((cell, env, algo, beh))
     return runs
 
@@ -303,9 +318,22 @@ def main() -> None:
             for row_out, rc, stderr in failed:
                 lf.write(f"rc={rc} {row_out}\n{stderr}\n---\n")
         print(f"\n{len(failed)}/{len(tasks)} runs FAILED. Details: {log_path}")
+        _write_summary(base_results)
         sys.exit(1)
     else:
         print(f"\nAll {len(tasks)} runs completed successfully.")
+        _write_summary(base_results)
+
+
+def _write_summary(results_dir: Path) -> None:
+    """Invoke make_summary to produce summary.json for the results directory."""
+    try:
+        from make_summary import make_summary  # type: ignore[import-not-found]
+
+        out = make_summary(results_dir)
+        print(f"Summary: {out}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"Warning: summary.json not written ({exc})")
 
 
 if __name__ == "__main__":
