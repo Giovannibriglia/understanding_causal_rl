@@ -212,7 +212,16 @@ def main() -> None:
     # Decide device list for striping.
     devices: list[str] | None = None
     if args.n_gpus > 0:
-        devices = [f"cuda:{i}" for i in range(args.n_gpus)]
+        import torch as _torch
+        available = _torch.cuda.device_count()
+        n_gpus = min(args.n_gpus, available) if available > 0 else 0
+        if n_gpus < args.n_gpus:
+            print(
+                f"Warning: --n-gpus {args.n_gpus} requested but only {available} "
+                f"GPU(s) available; clamping to {n_gpus}."
+            )
+        if n_gpus > 0:
+            devices = [f"cuda:{i}" for i in range(n_gpus)]
     elif args.device is not None:
         devices = [args.device]
 
