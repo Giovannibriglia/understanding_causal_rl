@@ -27,4 +27,4 @@ offline_transitions: 200000
 offline_updates: 10000
 alpha_conf_sweep: [0.0, 2.0]
 n_envs: 256
-eval_perturbations: default
+eval_perturbations: true
