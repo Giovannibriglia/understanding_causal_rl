@@ -9,7 +9,7 @@ algorithms:
 behaviours:
   - uniform
 seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-total_frames: 50000
+total_frames: 64000
 n_checkpoints_train: 50
 n_checkpoints_eval: 50
 env_horizons:

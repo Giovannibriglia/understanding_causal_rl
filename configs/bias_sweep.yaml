@@ -11,7 +11,7 @@ behaviours:
   - uniform
   - reward_aligned
 seeds: [0, 1, 2, 3, 4]
-total_frames: 50000
+total_frames: 64000
 n_checkpoints_train: 20
 n_checkpoints_eval: 10
 env_horizons:

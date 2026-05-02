@@ -8,16 +8,17 @@ envs:
 algorithms:
   - dqn
   - cql
+  - a2c
 behaviours:
   - uniform
   - reward_aligned
+  - reward_misaligned
 seeds: [0, 1]
-total_frames: 2000
+total_frames: 1600
 n_checkpoints_train: 10
 n_checkpoints_eval: 5
 env_horizons:
   tabular-sepsis-v0: 20
-  continuous-ward-v0: 50
 offline_transitions: 5000
 offline_updates: 500
 alpha_conf: 0.0
