@@ -17,4 +17,4 @@ env_horizons:
 alpha_conf: 0.0
 alpha_conf_sweep: [0.0, 1.0, 2.0, 4.0]
 n_envs: 64
-eval_perturbations: "off"
+eval_perturbations: false
