@@ -56,6 +56,20 @@ sbatch --array=1-$(wc -l < commands.txt) slurm_array.sh
 See [docs/experiment_plan.md](docs/experiment_plan.md) for the full Tier 0–4 experiment plan
 and figure-claim mapping.
 
+### Configurations
+
+| File | Purpose |
+|------|---------|
+| `configs/smoke_quick.yaml` | < 2 min CPU import/shape sanity check |
+| `configs/smoke.yaml` | Tabular smoke: cells 1–4 × dqn/cql/a2c × seeds [0,1] |
+| `configs/smoke_v7.yaml` | v7 acceptance smoke (alpha_conf + bias_strength sweep; populates the `non_id` stratum) |
+| `configs/horizon_sweep.yaml` | Horizon-impact study (Tier 1.5): 5/10/20/40/80 horizons |
+| `configs/paper_smoke.yaml` | Paper-companion smoke; populates id/partial_id/non_id |
+| `configs/paper_bandit.yaml` | Bandit family (UCB/UCB±/RCT) |
+| `configs/paper.yaml` | Full headline run |
+| `configs/bias_sweep.yaml` | Confounding sweep |
+| `configs/sample_sweep.yaml` | Offline-data sweep |
+
 ## Launching Experiments
 
 Single-run entrypoint: `scripts/run_single.py`.

@@ -63,5 +63,82 @@ class BanditView(CausalEnv):
     def do_transition(self, action: Tensor) -> Tensor:
         return self._env.do_transition(action)
 
+    def collect_observational_data(
+        self,
+        n_samples: int = 5000,
+        alpha_conf: float = 0.0,
+        seed: int = 0,
+    ) -> tuple[Tensor, Tensor]:
+        """Collect (action, reward_in_[0,1]) pairs from a confounded behaviour policy.
+
+        The behaviour policy depends on the latent U; the natural-bound machinery
+        is non-trivial in this regime.  Reward is in {-1, +1} for tabular sepsis;
+        it is rescaled to [0, 1] via ``(r + 1) / 2`` for compatibility with
+        :func:`causal_rl.identification.bounds.natural_bounds`.
+
+        Args:
+            n_samples: Total number of (action, reward) pairs to collect.
+            alpha_conf: Confounding strength for the behaviour policy.
+            seed: Seed for determinism.
+
+        Returns:
+            ``(actions, rewards_01)`` — actions: int64 ``(n_samples,)``;
+            rewards_01: float ``(n_samples,)`` in [0, 1].
+        """
+        device = self._current_obs.device
+        if hasattr(self._env, "alpha_conf"):
+            prev_alpha = float(self._env.alpha_conf)
+            self._env.alpha_conf = float(alpha_conf)
+        else:
+            prev_alpha = None
+
+        torch.manual_seed(int(seed))
+        n_per_reset = self.n_envs
+        n_resets = max(1, (n_samples + n_per_reset - 1) // n_per_reset)
+        all_acts: list[Tensor] = []
+        all_rews: list[Tensor] = []
+
+        try:
+            n_actions = 8
+            for r_i in range(n_resets):
+                obs, info = self._env.reset(seed=int(seed) + r_i)
+                latent_u = info.get("latent_U") if isinstance(info, dict) else None
+                # U-conditioned action distribution: probability of action a
+                # increases with U=1 and decreases with U=0 to mirror the
+                # confounded behaviour policy used elsewhere in the codebase.
+                u = latent_u.view(-1) if latent_u is not None else torch.zeros(
+                    obs.shape[0], device=obs.device
+                )
+                logits = torch.zeros(obs.shape[0], n_actions, device=obs.device)
+                for a in range(n_actions):
+                    a_norm = float(a) / float(n_actions - 1)
+                    logits[:, a] = float(alpha_conf) * (u - 0.5) * (a_norm - 0.5)
+                probs = torch.softmax(logits, dim=-1)
+                action = torch.multinomial(probs, 1)
+                try:
+                    reward_probs = self._env.do_reward(action)
+                    if reward_probs.dim() == 2 and reward_probs.shape[-1] == 2:
+                        reward_idx = torch.multinomial(reward_probs, 1).squeeze(-1)
+                        reward = torch.where(
+                            reward_idx == 1,
+                            torch.ones(obs.shape[0], device=reward_probs.device),
+                            -torch.ones(obs.shape[0], device=reward_probs.device),
+                        )
+                    else:
+                        reward = reward_probs.view(obs.shape[0])
+                except NotImplementedError:
+                    _, reward, _, _, _ = self._env.step(action)
+
+                all_acts.append(action.view(-1).long())
+                all_rews.append(reward.view(-1).float())
+        finally:
+            if prev_alpha is not None:
+                self._env.alpha_conf = prev_alpha
+
+        acts_t = torch.cat(all_acts, dim=0)[:n_samples].to(device)
+        rews_t = torch.cat(all_rews, dim=0)[:n_samples].to(device)
+        rewards_01 = ((rews_t + 1.0) / 2.0).clamp(0.0, 1.0)
+        return acts_t, rewards_01
+
     def close(self) -> None:
         self._env.close()

@@ -8,10 +8,17 @@ It serves as the authoritative guide for reproducing results.
 | Tier | Config | Est. wall-clock | Purpose |
 |------|--------|----------------|---------|
 | 0 | `smoke_quick` | < 2 min (CPU) | Import/shape sanity check |
+| 0b | `paper_bandit` | ~30 min (CPU) | Bandit family (UCB/UCB±/RCT) |
 | 1 | `smoke` | 30–60 min (GPU) | Algorithm correctness |
+| 1.5 | `horizon_sweep` | ~30 min (CPU) | Δ_TV is horizon-aware |
+| 1.7 | `smoke_v7` | ~10 min (CPU) | v7 acceptance smoke (populates non_id stratum) |
 | 2 | `paper` | ~24 h (A100) | Headline figures |
 | 3 | `bias_sweep` | ~8 h (A100) | Confounding sweep figures |
 | 4 | `sample_sweep` | ~4 h (A100) | Sample-size figures |
+
+Tier 0b (`paper_bandit`) and Tier 1 (`paper`/`smoke`) are independent and can
+run in either order: the bandit family does not depend on the off-policy
+infrastructure exercised by Tier 1.
 
 ---
 
@@ -47,6 +54,46 @@ python scripts/run_full_matrix.py --config smoke
 - `eval_oracle_return_mean > eval_return_mean` for on-policy algos (sanity)
 - No NaN in `delta_tv` or `ece` columns
 - `eval_perturbed.csv` exists for tabular runs
+
+---
+
+## Tier 1.5 — Horizon impact
+
+**Config**: `configs/horizon_sweep.yaml`
+**Cells**: 1–4 · **Algos**: dqn, cql, a2c · **Behaviours**: uniform, reward_aligned
+**Seeds**: 3 · **horizon_sweep**: [5, 10, 20, 40, 80]
+**total_frames_per_episode**: 200 (so episodes-per-run is roughly constant)
+
+```bash
+python scripts/run_full_matrix.py --config horizon_sweep --n-workers 4
+```
+
+**Claim**: in id cells, return-quality and Δ_TV are robust to episode length;
+in partial_id cells, both degrade with horizon, with Δ_TV widening
+systematically. This isolates the partial-observability contribution to the
+metric from confounding contributions, and demonstrates that Δ_TV is a
+horizon-aware quantity (not a property of a single (s, a) pair).
+
+**Figure**: `horizon_panel.pdf` (left: normalised eval/oracle return vs
+horizon; right: Δ_TV vs horizon; one line per cell).
+
+---
+
+## Tier 1.7 — v7 Acceptance Smoke
+
+**Config**: `configs/smoke_v7.yaml`
+**Cells**: 1–4 · **Algos**: dqn, cql · **Behaviours**: uniform, reward_aligned
+**alpha_conf_sweep**: [0.0, 2.0] · **bias_strengths**: [0.5, 1.0]
+
+```bash
+python scripts/run_full_matrix.py --config smoke_v7 --n-workers 4
+```
+
+**Pass criteria**:
+- `summary.json` shows `n_non_id > 0` (non_id stratum populated).
+- `bound_width_mean` is finite for at least some configurations.
+- `min_propensity` varies with behaviour in cells with `pi_b_known=False`.
+- `propensity_calibration_ece` is finite-non-zero in cells 2/4.
 
 ---
 
@@ -128,3 +175,5 @@ Before submitting paper figures, the following assertions must hold
 5. **Perturbation monotonicity**: perturbed return non-increasing along TABULAR_DIAGONAL
 6. **KS sensitivity**: D_env_KS > 0.05 at max perturbation (eps_T=0.5, eps_R=0.3)
 7. **ECE sanity**: ECE < 0.30 for all identified cells
+8. **Tier 1.5 horizon ratio**: at horizon=80, mean Δ_TV in partial_id cells / mean Δ_TV in id cells ≥ 1.5
+9. **v7 acceptance**: in `smoke_v7.yaml`'s `summary.json`, `n_non_id > 0`

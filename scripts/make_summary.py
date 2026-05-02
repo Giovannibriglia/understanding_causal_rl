@@ -132,6 +132,12 @@ def _collect_runs(results_dir: Path) -> list[dict[str, Any]]:
         algo = str(meta.get("algorithm") or last_eval.get("algorithm") or "unknown")
         beh = str(meta.get("behaviour") or last_eval.get("behaviour_policy") or "unknown")
         seed = int(meta.get("seed") or last_eval.get("seed") or 0)
+        horizon: int | None = None
+        if meta.get("horizon") is not None:
+            try:
+                horizon = int(meta["horizon"])
+            except (TypeError, ValueError):
+                horizon = None
 
         eval_ret = _sf(last_eval.get("eval_return_mean"))
         oracle_ret = _sf(last_eval.get("eval_oracle_return_mean"))
@@ -148,6 +154,7 @@ def _collect_runs(results_dir: Path) -> list[dict[str, Any]]:
                 "algorithm": algo,
                 "behaviour": beh,
                 "seed": seed,
+                "horizon": horizon,
                 "id_status": str(last_eval.get("id_status") or "non_id"),
                 "alpha_conf": _sf(last_eval.get("alpha_conf")),
                 "bias_strength": _sf(last_eval.get("bias_strength")),
@@ -539,6 +546,25 @@ def make_summary(results_dir: Path, output_path: Path | None = None) -> Path:
                 _group_summary(group) if group else {"eval_return_mean": None}
             )
 
+    # Per-horizon breakdown (only emitted when the manifest contains multiple
+    # horizons, i.e. a horizon_sweep was active).
+    horizons = sorted({r["horizon"] for r in runs if r.get("horizon") is not None})
+    per_horizon_summary: dict[str, Any] | None = None
+    per_cell_per_horizon: dict[str, Any] | None = None
+    if len(horizons) > 1:
+        per_horizon_summary = {
+            str(h): _group_summary([r for r in runs if r.get("horizon") == h])
+            for h in horizons
+        }
+        per_cell_per_horizon = {}
+        for cell in cells:
+            for h in horizons:
+                group = [
+                    r for r in runs if r["cell"] == cell and r.get("horizon") == h
+                ]
+                if group:
+                    per_cell_per_horizon[f"{cell}_h{h}"] = _group_summary(group)
+
     # ---- Regression + claims ----
     regression = _compute_regression(results_dir)
     claims = _compute_claims(runs, regression)
@@ -569,6 +595,9 @@ def make_summary(results_dir: Path, output_path: Path | None = None) -> Path:
         "headline_regression": regression,
         "claims_evidence": claims,
     }
+    if per_horizon_summary is not None:
+        summary["per_horizon_summary"] = per_horizon_summary
+        summary["per_cell_per_horizon"] = per_cell_per_horizon
 
     output_path.write_text(
         json.dumps(_nan_to_null(summary), indent=2, ensure_ascii=False),

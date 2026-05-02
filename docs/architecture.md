@@ -34,6 +34,14 @@ property of the learning algorithm's update rule.
 If a new algorithm is behaviour-independent, add its registry key to
 `_BEHAVIOUR_INDEPENDENT` in `run_full_matrix.py`.
 
+## Checkpoint scheduling
+
+`n_checkpoints_train` and `n_checkpoints_eval` are validated to be ≥ 2 and the
+runner always logs at the first tick (`step=1`) and the last tick (`step=total`).
+Intermediate checkpoints are distributed uniformly between them, clamped into
+`[2, total-1]` so they never collide with the endpoints. See
+`src/causal_rl/runner/scheduling.py::checkpoint_ticks` for the exact mapping.
+
 ## Throughput targets
 
 - Tabular sepsis CPU: > 80k env-steps/s at `B=256`.

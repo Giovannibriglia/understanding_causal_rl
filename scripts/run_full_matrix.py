@@ -117,6 +117,8 @@ def _build_cmd(
     beh: str,
     seed: int,
     alpha_conf: float,
+    bias_strength: float,
+    horizon_override: int | None,
     matrix: MatrixConfig,
     run_dir: Path,
     device: str | None,
@@ -125,9 +127,13 @@ def _build_cmd(
     spec = ALGOS[algo]
     # Use algo-specific default when matrix.n_envs is absent/default (64).
     n_envs = matrix.n_envs if matrix.n_envs != 64 else spec.default_n_envs
-    horizon = matrix.env_horizons.get(env)
+    horizon = horizon_override if horizon_override is not None else matrix.env_horizons.get(env)
     if horizon is None:
         raise ValueError(f"Missing env_horizons entry for env: {env}")
+    if matrix.total_frames_per_episode is not None:
+        total_frames = int(matrix.total_frames_per_episode) * int(horizon)
+    else:
+        total_frames = matrix.total_frames
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "run_single.py"),
@@ -142,7 +148,7 @@ def _build_cmd(
         "--seed",
         str(seed),
         "--total-frames",
-        str(2_000 if quick else matrix.total_frames),
+        str(2_000 if quick else total_frames),
         "--n-checkpoints-train",
         str(10 if quick else matrix.n_checkpoints_train),
         "--n-checkpoints-eval",
@@ -159,6 +165,8 @@ def _build_cmd(
         str(50 if quick else matrix.offline_updates),
         "--alpha-conf",
         str(alpha_conf),
+        "--bias-strength",
+        str(bias_strength),
         "--n-envs",
         str(8 if quick else n_envs),
     ]
@@ -251,40 +259,72 @@ def main() -> None:
         if matrix.alpha_conf_sweep
         else [matrix.alpha_conf]
     )
+    horizon_values: list[int | None] = (
+        [int(h) for h in matrix.horizon_sweep]
+        if matrix.horizon_sweep
+        else [None]
+    )
+    bias_values: list[float] = (
+        [float(b) for b in matrix.bias_strengths]
+        if matrix.bias_strengths
+        else [1.0]
+    )
 
     # Build all tasks.
     tasks: list[RunTask] = []
     for seed in seeds:
         for alpha_conf in alpha_values:
-            for cell, env, algo, beh in runs:
-                alpha_tag = f"_alpha{alpha_conf}" if len(alpha_values) > 1 else ""
-                run_dir = base_results / f"cell{cell}_{env}_{algo}_{beh}_seed{seed}{alpha_tag}"
-                device = devices[len(tasks) % len(devices)] if devices else args.device
-                cmd = _build_cmd(
-                    cell=cell,
-                    env=env,
-                    algo=algo,
-                    beh=beh,
-                    seed=seed,
-                    alpha_conf=alpha_conf,
-                    matrix=matrix,
-                    run_dir=run_dir,
-                    device=device,
-                    quick=args.quick,
-                )
-                row: dict[str, object] = {
-                    "seed": seed,
-                    "alpha_conf": alpha_conf,
-                    "cell": cell,
-                    "env": env,
-                    "algorithm": algo,
-                    "behaviour": beh,
-                    "output_path": str(run_dir),
-                }
-                tasks.append((cmd, row))
+            for horizon_override in horizon_values:
+                for bias_strength in bias_values:
+                    for cell, env, algo, beh in runs:
+                        alpha_tag = f"_alpha{alpha_conf}" if len(alpha_values) > 1 else ""
+                        horizon_tag = (
+                            f"_h{horizon_override}" if horizon_override is not None else ""
+                        )
+                        bias_tag = (
+                            f"_bias{bias_strength}" if len(bias_values) > 1 else ""
+                        )
+                        run_dir = base_results / (
+                            f"cell{cell}_{env}_{algo}_{beh}_seed{seed}"
+                            f"{alpha_tag}{horizon_tag}{bias_tag}"
+                        )
+                        device = devices[len(tasks) % len(devices)] if devices else args.device
+                        cmd = _build_cmd(
+                            cell=cell,
+                            env=env,
+                            algo=algo,
+                            beh=beh,
+                            seed=seed,
+                            alpha_conf=alpha_conf,
+                            bias_strength=bias_strength,
+                            horizon_override=horizon_override,
+                            matrix=matrix,
+                            run_dir=run_dir,
+                            device=device,
+                            quick=args.quick,
+                        )
+                        row: dict[str, object] = {
+                            "seed": seed,
+                            "alpha_conf": alpha_conf,
+                            "bias_strength": bias_strength,
+                            "horizon": (
+                                horizon_override
+                                if horizon_override is not None
+                                else matrix.env_horizons.get(env, "")
+                            ),
+                            "cell": cell,
+                            "env": env,
+                            "algorithm": algo,
+                            "behaviour": beh,
+                            "output_path": str(run_dir),
+                        }
+                        tasks.append((cmd, row))
 
     manifest = base_results / "manifest.csv"
-    manifest_fields = ["seed", "alpha_conf", "cell", "env", "algorithm", "behaviour", "output_path"]
+    manifest_fields = [
+        "seed", "alpha_conf", "bias_strength", "horizon",
+        "cell", "env", "algorithm", "behaviour", "output_path",
+    ]
     failed: list[tuple[dict[str, object], int, str]] = []
 
     with manifest.open("w", newline="", encoding="utf-8") as mf:
