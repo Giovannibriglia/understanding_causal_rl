@@ -1,8 +1,8 @@
 # Metric
 
-\[
+$$
 \Delta_\varphi(\pi)=\mathbb{E}_{(s,a)\sim d^\pi}\left[\varphi\!\left(\hat P(R\mid a,s),\hat P(R\mid do(a),s)\right)\right].
-\]
+$$
 
 The key point is policy dependence: as training changes occupancy \(d^\pi\), \(\widehat{\Delta}\) changes.
 

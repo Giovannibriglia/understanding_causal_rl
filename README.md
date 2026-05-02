@@ -8,7 +8,7 @@ PyTorch-first vectorised benchmark suite for causal RL identifiability studies.
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-black.svg)](#)
 [![codecov](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)](#)
 
-This repository is the experimental companion to *Debugging Reinforcement Learning through a Simple Causal Lens*. It benchmarks policies across four causal cells using controllable medical environments and logs the empirical identifiability gap \(\Delta_\varphi\), with TV as the primary operational metric.
+This repository is the experimental companion to *Debugging Reinforcement Learning through a Simple Causal Lens*. It benchmarks policies across four causal cells using controllable medical environments and logs the empirical identifiability gap $\Delta_\varphi$, with TV as the primary operational metric.
 
 ## Quickstart
 
@@ -144,10 +144,10 @@ Family 3 (`curiosity`, `novelty_trap`) models novelty seeking. `novelty_trap` ov
 Full math and implementation notes: [docs/behaviour_policies.md](docs/behaviour_policies.md).
 
 ## The identifiability gap metric
-\[
+$$
 \Delta_\varphi(\pi)=\mathbb{E}_{(s,a)\sim d^\pi}\left[\varphi\!\left(P(R\mid a,s), P(R\mid do(a),s)\right)\right]
-\]
-with \(\varphi \in \{\mathrm{TV}, \mathrm{KL}, \chi^2, \sup\}\).  
+$$
+with $\varphi \in \{\mathrm{TV}, \mathrm{KL}, \chi^2, \sup\}$.  
 TV is the primary instantiation because it is bounded, interpretable, and directly linked to return bias control.
 
 Implementation detail: divergence values logged to `train.csv` and `eval.csv` are computed from deterministic policy rollouts at checkpoints (occupancy under the current learned policy), so they are comparable across algorithms within a cell.

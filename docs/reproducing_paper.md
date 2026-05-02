@@ -14,7 +14,7 @@ All runs must exit 0 before proceeding.
 
 ```bash
 # Local (8 workers, 2 GPUs)
-python scripts/run_full_matrix.py --config paper --n-workers 8 --n-gpus 2
+python scripts/run_full_matrix.py --config paper --n-workers 10 --n-gpus 10 --device cuda
 
 # SLURM array
 python scripts/run_full_matrix_slurm.py --config paper \
@@ -27,8 +27,8 @@ The runner prints the results directory (e.g. `results/paper_<timestamp>`).
 ## Step 2 — Bias and sample sweeps
 
 ```bash
-python scripts/run_full_matrix.py --config bias_sweep --n-workers 4
-python scripts/run_full_matrix.py --config sample_sweep --n-workers 4
+python scripts/run_full_matrix.py --config bias_sweep --n-workers 4 --n-gpus 10 --device cuda
+python scripts/run_full_matrix.py --config sample_sweep --n-workers 4 --n-gpus 10 --device cuda
 ```
 
 ## Step 3 — Build all figures
