@@ -17,7 +17,7 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
             rows.extend(list(csv.DictReader(f)))
     if env_prefix is not None:
         rows = [r for r in rows if str(r.get("env_name", "")).startswith(env_prefix)]
-    fig, axes = plt.subplots(2, 4, figsize=(10.0, 4.5), sharex=True, sharey=True)
+    fig, axes = plt.subplots(1, 4, figsize=(12.0, 3.5), sharex=True, sharey=True)
     from causal_rl.plotting.colors import get_color, get_linestyle, get_marker
 
     combos_all = []
@@ -32,8 +32,8 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
 
     # plot representative point per (algo,beh) for each cell to ensure visible color variety
     max_per_cell = 12
-    for cell in range(1, 9):
-        ax = axes[(cell - 1) // 4, (cell - 1) % 4]
+    for cell in range(1, 5):
+        ax = axes[(cell - 1)]
         cell_rows = [r for r in rows if r.get("cell") == str(cell)]
         # group rows by (algo,beh); pick the row with the largest step as representative
         combo_map: dict[tuple[str, str], dict[str, str]] = {}
@@ -89,18 +89,18 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
             handles,
             labels,
             loc="lower center",
-            bbox_to_anchor=(0.5, -0.08),
+            bbox_to_anchor=(0.5, -0.15),
             ncol=min(6, len(handles)),
             frameon=False,
             fontsize=8,
         )
 
-    axes[1, 0].set_xlabel(r"$\widehat{\Delta}_{\mathrm{TV}}$")
-    axes[1, 1].set_xlabel(r"$\widehat{\Delta}_{\mathrm{TV}}$")
-    axes[0, 0].set_ylabel("Eval Return")
-    axes[1, 0].set_ylabel("Eval Return")
-    pdf = output_dir / "cell_grid_8x4.pdf"
-    png = output_dir / "cell_grid_8x4.png"
+    # set xlabels for all panels and y-label for first panel
+    for ax in axes:
+        ax.set_xlabel(r"$\widehat{\Delta}_{\mathrm{TV}}$")
+    axes[0].set_ylabel("Eval Return")
+    pdf = output_dir / "cell_grid_1x4.pdf"
+    png = output_dir / "cell_grid_1x4.png"
     fig.savefig(pdf, bbox_inches="tight")
     fig.savefig(png, dpi=300, bbox_inches="tight")
     plt.close(fig)

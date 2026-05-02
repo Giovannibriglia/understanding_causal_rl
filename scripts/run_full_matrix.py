@@ -34,7 +34,6 @@ if str(SRC) not in sys.path:
 from causal_rl.algos.registry import ALGOS  # noqa: E402
 from causal_rl.config.schemas import MatrixConfig, load_yaml  # noqa: E402
 
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seeds", type=int, nargs="*", default=None)
@@ -307,6 +306,20 @@ def main() -> None:
     else:
         print(f"\nAll {len(tasks)} runs completed successfully.")
 
+        # Automatically generate plots using scripts/make_all_figures.py
+        plot_cmd = [
+            sys.executable,
+            str(ROOT / "scripts" / "make_all_figures.py"),
+            "--results",
+            str(base_results),
+            "--output",
+            str(base_outputs),
+        ]
+        print("Generating figures...")
+        proc = subprocess.run(plot_cmd)
+        if proc.returncode != 0:
+            print(f"make_all_figures failed with exit code {proc.returncode}")
+            sys.exit(proc.returncode)
 
 if __name__ == "__main__":
     main()

@@ -61,7 +61,7 @@ def make_gap_curves(results_dir: Path, output_dir: Path, env_prefix: str | None 
 
     from causal_rl.plotting.colors import get_color, get_linestyle, parse_algo_beh_from_label
 
-    for cell in range(1, 9):
+    for cell in range(1, 5):
         fig, axes = plt.subplots(2, 2, figsize=(6.75, 4.8), sharex=True)
         axes_flat = axes.flatten()
         cell_data = {k[1]: v for k, v in by_cell_label.items() if k[0] == cell}

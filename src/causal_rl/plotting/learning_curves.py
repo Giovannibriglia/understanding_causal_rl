@@ -143,7 +143,7 @@ def make_learning_curves(
     by_algo_train = _build_algo_series(train_rows, "train_return_mean")
     by_algo_eval = _build_algo_series(eval_rows, "eval_return_mean")
 
-    for cell in range(1, 9):
+    for cell in range(1, 5):
         fig, axes = plt.subplots(2, 1, figsize=(6.75, 4.8), sharex=True)
         _plot_panel(axes[0], cell, by_algo_train, ylabel="Train Return")
         _plot_panel(axes[1], cell, by_algo_eval, ylabel="Eval Return")
