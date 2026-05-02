@@ -134,9 +134,9 @@ class TabularSepsisEnv(CausalEnv):
         obs_idx = hr + 3 * sbp + 15 * oxygen + 45 * glucose + 90 * tx
         if self.config.expose_z and s.shape[1] >= 6:
             z = torch.round(s[:, 5]).to(torch.long).clamp(0, 1)
-        else:
-            z = (self._latent_state[: s.shape[0]] // OBS_STATES).to(torch.long).clamp(0, 1)
-        return z * OBS_STATES + obs_idx
+            return z * OBS_STATES + obs_idx
+        # Z is hidden; callers that need Z must marginalise (see sample_observational).
+        return obs_idx
 
     def reset(self, seed: int | None = None) -> tuple[Tensor, dict[str, Tensor]]:
         if seed is not None:
@@ -248,7 +248,14 @@ class TabularSepsisEnv(CausalEnv):
         a = action.view(-1).to(torch.long).clamp(0, N_ACTIONS - 1)
         latent_state = self._infer_latent_state_from_obs(state)
         batch = a.shape[0]
-        mu_base = self.reward_probs[latent_state, a, 1]  # (batch,)
+        if self.config.expose_z:
+            mu_base = self.reward_probs[latent_state, a, 1]  # (batch,)
+        else:
+            # Z is hidden: marginalise uniformly over Z ∈ {0, 1} (latent_state = obs_idx).
+            obs_idx = latent_state % OBS_STATES
+            p0 = self.reward_probs[obs_idx, a, 1]
+            p1 = self.reward_probs[OBS_STATES + obs_idx, a, 1]
+            mu_base = 0.5 * p0 + 0.5 * p1  # (batch,)
 
         if self.alpha_conf <= 0.0:
             p_obs = mu_base
