@@ -18,6 +18,22 @@
 - New divergence/metric hook: `src/causal_rl/metrics/`.
 - New figure: `src/causal_rl/plotting/` + smoke test.
 
+## Behaviour-independent algorithm deduplication
+
+On-policy algorithms (PPO, A2C) collect their own experience and never use the
+offline behaviour dataset, so the choice of behaviour policy in the matrix YAML
+has no effect on their learned policy. Bandit algorithms (UCB, RCT) treat each
+episode as i.i.d. and are similarly unaffected.
+
+`build_runs` in `scripts/run_full_matrix.py` tracks a `_BEHAVIOUR_INDEPENDENT`
+frozenset and, for these algorithms, includes only the **first** behaviour
+listed in the config YAML. This eliminates redundant identical runs without
+requiring any per-algorithm configuration: the deduplication is purely a
+property of the learning algorithm's update rule.
+
+If a new algorithm is behaviour-independent, add its registry key to
+`_BEHAVIOUR_INDEPENDENT` in `run_full_matrix.py`.
+
 ## Throughput targets
 
 - Tabular sepsis CPU: > 80k env-steps/s at `B=256`.

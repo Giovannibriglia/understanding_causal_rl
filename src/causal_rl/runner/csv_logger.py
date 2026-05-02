@@ -18,7 +18,7 @@ class CSVLogger:
                 os.fsync(f.fileno())
 
     def write(self, row: dict[str, object]) -> None:
-        aligned = {c: row.get(c, "") for c in self.columns}
+        aligned = {c: ("nan" if row.get(c) is None else row.get(c, "")) for c in self.columns}
         extra = set(row.keys()) - set(self.columns)
         if extra:
             msg = f"Row contains unknown columns: {sorted(extra)}"

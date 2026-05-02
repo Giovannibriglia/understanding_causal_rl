@@ -183,6 +183,14 @@ def make_headline_regression(
         elif mask.all():
             X_raw[:, ece_col] = 0.0
 
+    # Drop constant features (std < 1e-8) before scaling — they produce
+    # meaningless zero coefficients and clutter the regression table.
+    feature_stds = X_raw.std(axis=0)
+    keep_mask = feature_stds >= 1e-8
+    dropped_constant_features = [feature_cols[i] for i in range(len(feature_cols)) if not keep_mask[i]]
+    feature_cols = [feature_cols[i] for i in range(len(feature_cols)) if keep_mask[i]]
+    X_raw = X_raw[:, keep_mask]
+
     scaler = StandardScaler()
     X = scaler.fit_transform(X_raw)  # noqa: N806
 
@@ -231,13 +239,15 @@ def make_headline_regression(
         )
     strat_r2_rows.append({"stratum": "pooled", "r2_train": r2_train, "r2_cv": r2_cv, "n": n})
 
-    # Save regression table
+    # Save regression table (includes dropped constant features with coef=NaN).
     table_path = output_dir / "headline_regression_table.csv"
     with table_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["feature", "coef", "ci_lo", "ci_hi", "importance_rf"])
+        writer.writerow(["feature", "coef", "ci_lo", "ci_hi", "importance_rf", "dropped"])
         for i, feat in enumerate(feature_cols):
-            writer.writerow([feat, lin.coef_[i], ci_lo[i], ci_hi[i], rf_importances[i]])
+            writer.writerow([feat, lin.coef_[i], ci_lo[i], ci_hi[i], rf_importances[i], False])
+        for feat in dropped_constant_features:
+            writer.writerow([feat, float("nan"), float("nan"), float("nan"), float("nan"), True])
 
     # Save stratified R² table
     strat_path = output_dir / "headline_stratified_r2.csv"

@@ -331,7 +331,8 @@ class BenchmarkRunner:
         }
 
     def _compute_bound_metrics(self, actions: torch.Tensor, rewards: torch.Tensor) -> None:
-        if not self.env.is_discrete_action:
+        # Bound metrics are only meaningful for bound_cql which explicitly uses them.
+        if self.config.algorithm != "bound_cql" or not self.env.is_discrete_action:
             self._bound_metrics = {
                 "bound_width_mean": float("nan"),
                 "bound_width_max": float("nan"),
