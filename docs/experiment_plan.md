@@ -47,7 +47,7 @@ python scripts/run_full_matrix.py --config smoke_quick --quick
 that oracle return > random return, and that CSVs contain the expected columns.
 
 ```bash
-python scripts/run_full_matrix.py --config smoke
+python scripts/run_full_matrix.py --config smoke --device cuda --n-workers 8 --n-gpus 2
 ```
 
 **Pass criteria**:
@@ -106,7 +106,7 @@ python scripts/run_full_matrix.py --config smoke_v7 --n-workers 4
 
 ```bash
 # Local (multi-GPU)
-python scripts/run_full_matrix.py --config paper --n-workers 8 --n-gpus 2
+python scripts/run_full_matrix.py --config paper --device cuda --n-workers 8 --n-gpus 2
 
 # SLURM array
 python scripts/run_full_matrix_slurm.py --config paper --seeds 0 1 2 3 4 5 6 7 8 9 \
