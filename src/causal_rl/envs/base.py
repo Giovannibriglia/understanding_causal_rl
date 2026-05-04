@@ -29,6 +29,21 @@ class CausalEnv(abc.ABC):
     @abc.abstractmethod
     def close(self) -> None: ...
 
+    @property
+    def n_actions(self) -> int:
+        """Action-space size for discrete envs.
+
+        Discrete-action subclasses should override.  Continuous envs
+        raise: there's no finite action count to report.
+        """
+        if not getattr(self, "is_discrete_action", False):
+            raise NotImplementedError(
+                "n_actions is only defined for discrete-action envs"
+            )
+        # Conservative default for discrete envs that don't override.
+        # Used by histogram-based coverage diagnostics.
+        return 8
+
     def sample_interventional(self, state: Tensor | None, action: Tensor, n: int) -> Tensor:
         """Draw n reward samples per env from P(R | do(A=a), current observable state).
 

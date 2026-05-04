@@ -35,8 +35,10 @@ from causal_rl.metrics.calibration import expected_calibration_error
 from causal_rl.metrics.coverage import (
     PropensityModel,
     effective_sample_size_ratio,
+    ess_histogram,
     expected_calibration_error as expected_calibration_error_2d,
     fit_propensity_model,
+    min_action_freq,
     min_propensity,
     pi_b_recovery_kl,
     support_overlap,
@@ -113,8 +115,14 @@ class BenchmarkRunner:
         )
 
         obs_dim = self.env.obs_shape[0]
+        # ``n_actions`` is sourced from the env property when discrete; cached
+        # on the runner so the histogram-based coverage diagnostics
+        # (``min_action_freq``, ``ess_histogram``) can read it cheaply.
+        self._n_actions: int | None = (
+            int(self.env.n_actions) if self.env.is_discrete_action else None
+        )
         if self.env.is_discrete_action:
-            n_actions = 8
+            n_actions = self._n_actions
             algo_kwargs: dict[str, object] = {"obs_dim": obs_dim, "n_actions": n_actions}
             if config.algorithm in {"ucb_plus", "ucb_minus"} and isinstance(self.env, BanditView):
                 actions_obs, rewards_obs = self.env.collect_observational_data(
@@ -315,6 +323,12 @@ class BenchmarkRunner:
         row["ess_ratio"] = self._coverage_metrics.get("ess_ratio", float("nan"))
         row["overlap_at_1e-2"] = self._coverage_metrics.get("overlap_at_1e-2", float("nan"))
         row["tail_mass_top10pct"] = self._coverage_metrics.get("tail_mass_top10pct", float("nan"))
+        row["coverage_action_freq_min"] = self._coverage_metrics.get(
+            "coverage_action_freq_min", float("nan")
+        )
+        row["coverage_ess_histogram"] = self._coverage_metrics.get(
+            "coverage_ess_histogram", float("nan")
+        )
         row["propensity_calibration_ece"] = self._propensity_calibration_ece
         row["pi_b_recovery_kl"] = self._pi_b_recovery_kl
         row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
@@ -384,6 +398,12 @@ class BenchmarkRunner:
         row["ess_ratio"] = self._coverage_metrics.get("ess_ratio", float("nan"))
         row["overlap_at_1e-2"] = self._coverage_metrics.get("overlap_at_1e-2", float("nan"))
         row["tail_mass_top10pct"] = self._coverage_metrics.get("tail_mass_top10pct", float("nan"))
+        row["coverage_action_freq_min"] = self._coverage_metrics.get(
+            "coverage_action_freq_min", float("nan")
+        )
+        row["coverage_ess_histogram"] = self._coverage_metrics.get(
+            "coverage_ess_histogram", float("nan")
+        )
         row["propensity_calibration_ece"] = self._propensity_calibration_ece
         row["pi_b_recovery_kl"] = self._pi_b_recovery_kl
         row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
@@ -410,20 +430,45 @@ class BenchmarkRunner:
             row[k] = self._extra_metrics.get(k, float("nan"))
         self.eval_logger.write(row)
 
-    def _compute_coverage_metrics(self, log_probs: torch.Tensor) -> None:
+    def _compute_coverage_metrics(
+        self,
+        log_probs: torch.Tensor,
+        actions: torch.Tensor | None = None,
+    ) -> None:
         self._coverage_metrics = {
             "min_propensity": float(min_propensity(log_probs).item()),
             "ess_ratio": float(effective_sample_size_ratio(log_probs).item()),
             "overlap_at_1e-2": float(support_overlap(log_probs, tau=1e-2).item()),
             "tail_mass_top10pct": float(tail_mass_top_q(log_probs, q=0.1).item()),
         }
+        # v12: histogram-based coverage diagnostics.  Model-free — they read
+        # the empirical action histogram directly, so they reveal masked-
+        # coverage regimes that the per-row log_prob diagnostics cannot
+        # (the resampling-to-allowed-uniform behaviour of
+        # ``collector._resample_forbidden`` makes log_probs identical
+        # across rows; the histogram is what's actually distorted).
+        if (
+            actions is not None
+            and self.env.is_discrete_action
+            and self._n_actions is not None
+            and actions.numel() > 0
+        ):
+            self._coverage_metrics["coverage_action_freq_min"] = float(
+                min_action_freq(actions, self._n_actions).item()
+            )
+            self._coverage_metrics["coverage_ess_histogram"] = float(
+                ess_histogram(actions, self._n_actions).item()
+            )
+        else:
+            self._coverage_metrics["coverage_action_freq_min"] = float("nan")
+            self._coverage_metrics["coverage_ess_histogram"] = float("nan")
 
     def _compute_bound_metrics(self, actions: torch.Tensor, rewards: torch.Tensor) -> None:
         # Compute Bareinboim natural-bound metrics for any discrete-action run.
         # Emits per-arm lower/upper/count so downstream figures (bound_width
         # panel) can scatter per-arm points instead of a degenerate per-run
         # mean.  bound_cql and ucb_plus also consume the aggregates.
-        n_actions = 8
+        n_actions = self._n_actions or 8
         nan_per_arm: dict[str, float] = {
             **{f"bound_lower_a{a}": float("nan") for a in range(n_actions)},
             **{f"bound_upper_a{a}": float("nan") for a in range(n_actions)},
@@ -474,7 +519,7 @@ class BenchmarkRunner:
         with quiet NaN fallbacks when the inputs aren't available."""
         if not self.env.is_discrete_action:
             return
-        n_actions = 8
+        n_actions = self._n_actions or 8
         # 5.1 backdoor residual.  Z is observable in cells with expose_z=True;
         # we use the env-supplied latent_Z when available and treat hidden Z
         # as a NaN signal.  Only use latent_z when its leading dim matches
@@ -972,7 +1017,9 @@ class BenchmarkRunner:
                 next_obs_batch = torch.cat(next_obs_buf, dim=0)
                 done_batch = torch.cat(done_buf, dim=0)
                 logp_batch = torch.cat(logp_buf, dim=0)
-                self._compute_coverage_metrics(logp_batch.view(-1))
+                self._compute_coverage_metrics(
+                    logp_batch.view(-1), actions=action_batch.view(-1)
+                )
                 self._compute_bound_metrics(action_batch, reward_batch)
                 # v8: extra metrics on the rollout buffer.  Latent_z is read
                 # from the most recent ``info`` dict when expose_z=True.
@@ -1078,7 +1125,10 @@ class BenchmarkRunner:
                 pred_lp_per_action = model(buffer.obs[: buffer.size])  # (N, 8)
             actions_taken = buffer.action[: buffer.size].view(-1, 1).long()
             learned_log_probs = pred_lp_per_action.gather(1, actions_taken).squeeze(-1)
-            self._compute_coverage_metrics(learned_log_probs)
+            self._compute_coverage_metrics(
+                learned_log_probs,
+                actions=buffer.action[: buffer.size].view(-1),
+            )
             # ECE on the (N, n_actions) log-prob matrix vs the integer actions
             # that were *actually taken* — i.e. how well-calibrated is the
             # model's "what action did the behaviour pick?" classifier.
@@ -1110,7 +1160,10 @@ class BenchmarkRunner:
             else:
                 self._pi_b_recovery_kl = float("nan")
         elif buffer.behaviour_logprob is not None and buffer.size > 0:
-            self._compute_coverage_metrics(buffer.behaviour_logprob[: buffer.size])
+            self._compute_coverage_metrics(
+                buffer.behaviour_logprob[: buffer.size],
+                actions=buffer.action[: buffer.size].view(-1),
+            )
             self._propensity_calibration_ece = float("nan")
             # When π_b is fully known the recovery KL is by definition zero.
             self._pi_b_recovery_kl = 0.0

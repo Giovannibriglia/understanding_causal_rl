@@ -278,6 +278,10 @@ class TabularSepsisEnv(CausalEnv):
     def close(self) -> None:
         return None
 
+    @property
+    def n_actions(self) -> int:
+        return N_ACTIONS
+
     def apply_perturbation(self, spec: PerturbationSpec) -> None:
         self.transition = perturb_tabular_transition(self.transition, spec.eps_T, seed=0)
         self.reward_probs = perturb_tabular_rewards(self.reward_probs, spec.eps_R)
