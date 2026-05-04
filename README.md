@@ -63,6 +63,7 @@ and figure-claim mapping.
 | `configs/smoke_quick.yaml` | < 2 min CPU import/shape sanity check |
 | `configs/smoke.yaml` | Tabular smoke: cells 1–4 × dqn/cql/a2c × seeds [0,1] |
 | `configs/smoke_v7.yaml` | v7 acceptance smoke (alpha_conf + bias_strength sweep; populates the `non_id` stratum) |
+| `configs/smoke_v8.yaml` | v8 acceptance smoke (wide bias_strengths + perturbations on; generalisation regression mode) |
 | `configs/horizon_sweep.yaml` | Horizon-impact study (Tier 1.5): 5/10/20/40/80 horizons |
 | `configs/paper_smoke.yaml` | Paper-companion smoke; populates id/partial_id/non_id |
 | `configs/paper_bandit.yaml` | Bandit family (UCB/UCB±/RCT) |

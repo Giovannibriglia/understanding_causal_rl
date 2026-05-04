@@ -63,6 +63,21 @@ class BanditView(CausalEnv):
     def do_transition(self, action: Tensor) -> Tensor:
         return self._env.do_transition(action)
 
+    def sample_observational(
+        self, state: Tensor | None, action: Tensor, n: int
+    ) -> Tensor:
+        # The wrapped env carries the observational sampling logic (latent
+        # confounding, alpha_conf scaling, Z-marginalisation).  BanditView
+        # is purely a single-step wrapper, so we delegate.  Without this
+        # the runner's ``compute_gap_metrics`` raises NotImplementedError on
+        # the first eval checkpoint of every bandit run.
+        return self._env.sample_observational(state, action, n)
+
+    def sample_interventional(
+        self, state: Tensor | None, action: Tensor, n: int
+    ) -> Tensor:
+        return self._env.sample_interventional(state, action, n)
+
     def collect_observational_data(
         self,
         n_samples: int = 5000,

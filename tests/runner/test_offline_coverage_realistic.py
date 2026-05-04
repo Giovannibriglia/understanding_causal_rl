@@ -53,3 +53,12 @@ def test_offline_coverage_realistic_in_pi_b_unknown_cell(tmp_path: Path) -> None
     assert ess < 0.95, f"ess_ratio={ess:.3f} should not be near-degenerate"
     assert math.isfinite(ece), "propensity_calibration_ece must be finite when π_b is hidden"
     assert ece > 0.0, f"propensity_calibration_ece={ece:.3f} expected non-zero"
+
+    # pi_b_recovery_kl should be finite (non-NaN) in pi_b_unknown cells: the
+    # collector now records true behaviour log-probs in a side channel that
+    # the runner uses for the KL even when expose_pi_b=False.
+    kl_str = last.get("pi_b_recovery_kl", "")
+    kl = float(kl_str) if kl_str not in ("", "nan") else float("nan")
+    assert math.isfinite(kl), (
+        f"pi_b_recovery_kl={kl_str!r} expected finite when pi_b_known=False"
+    )

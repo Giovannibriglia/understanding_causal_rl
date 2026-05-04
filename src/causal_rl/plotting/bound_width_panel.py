@@ -163,6 +163,28 @@ def make_bound_width_panel(results_dir: Path, output_dir: Path) -> None:
     ax.set_xlabel("Per-arm natural-bound width  $r_a - l_a$")
     ax.set_ylabel(r"Per-arm gap to best  $\mu^* - \hat{\mu}_a$")
     ax.set_title("Bound width vs per-arm sub-optimality")
+
+    # Caption note: with uniform π_b the bound width is structurally pinned
+    # at 1 - 1/n_actions = 0.875 for every arm.  The figure carries the
+    # paper's headline claim only on configs that *bias* π_b — sweep
+    # ``bias_strength`` (e.g. ``configs/bias_sweep.yaml``) to populate the
+    # left side of the x-axis.  See ``docs/metric.md`` for the predicted
+    # slope per id_status stratum.
+    fig.text(
+        0.5,
+        -0.03,
+        (
+            "Note: with uniform π_b every arm's bound width is "
+            r"$1 - 1/n_{\mathrm{actions}} = 0.875$;"
+            " bias_strength must be swept to expose the paper's predicted slope."
+        ),
+        ha="center",
+        va="top",
+        fontsize=7,
+        style="italic",
+        color="#555555",
+    )
+
     fig.tight_layout()
     fig.savefig(output_dir / "bound_width_panel.pdf", bbox_inches="tight")
     plt.close(fig)

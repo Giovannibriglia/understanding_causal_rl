@@ -43,6 +43,10 @@ def collect_offline_dataset(
             done=done.float(),
             behaviour_logprob=logprob if expose_pi_b else None,
             latent=latent_logged if expose_latent else None,
+            # Always record the true π_b log-prob in a separate channel —
+            # the runner uses it for π_b-recovery diagnostics regardless of
+            # whether the algorithm is allowed to see it.
+            true_behaviour_logprob=logprob,
         )
         obs = next_obs
         if torch.any(done):

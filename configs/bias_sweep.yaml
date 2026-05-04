@@ -1,5 +1,8 @@
-# Bias/coverage sweep: vary alpha_conf across 5 levels to show confounding effect.
-# eval_perturbations off to halve wall-clock time.
+# Bias/coverage sweep: vary alpha_conf AND bias_strength across 5 levels each
+# to show confounding effect AND coverage degradation.  The 5×5 product is
+# what the bias_sweep figure expects to see.  eval_perturbations off to halve
+# wall-clock time; for the generalisation-factorisation block of the headline
+# regression use ``smoke_v8`` instead.
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
@@ -19,5 +22,9 @@ env_horizons:
 offline_transitions: 50000
 offline_updates: 2000
 alpha_conf_sweep: [0.0, 0.5, 1.0, 1.5, 2.0]
+# Wide bias_strengths anchored at 0.0 so the predicted monotone effect on
+# Δ_TV / ESS / min_propensity is actually visible end-to-end.  Without this
+# the bias_sweep figure shows three near-overlapping lines.
+bias_strengths: [0.0, 0.25, 0.5, 0.75, 1.0]
 n_envs: 64
 eval_perturbations: false

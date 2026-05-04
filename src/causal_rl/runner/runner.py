@@ -1059,28 +1059,23 @@ class BenchmarkRunner:
             self._propensity_calibration_ece = (
                 float(ece.item()) if hasattr(ece, "item") else float(ece)
             )
-            # When the *true* π_b is also exposed (rare in offline cells but
-            # check anyway), record KL(true ‖ predicted) as a sanity check.
-            if (
-                buffer.behaviour_logprob is not None
-                and buffer.size > 0
-                and bool(buffer.behaviour_logprob[: buffer.size].abs().sum() > 0.0)
-            ):
-                # Reconstruct the true π_b log-probs for all actions.  Without
-                # the per-action distribution we approximate by spreading the
-                # log-prob of the taken action uniformly: this isn't perfect
-                # but gives a finite KL in cells where π_b is partially
-                # exposed.
-                # (Full per-action ground truth is available only in cell 1/3.)
-                true_lp_taken = buffer.behaviour_logprob[: buffer.size]
-                # KL between two delta-style distributions reduces to a
-                # simple per-sample quantity.  We compute it as the mean of
-                # (log p_true(a) - log p_pred(a)) on the taken actions, which
-                # is an unbiased estimator of E_{p_true}[log p_true / p_pred].
-                kl_est = float(
-                    (true_lp_taken - learned_log_probs.detach()).mean().item()
-                )
-                self._pi_b_recovery_kl = max(0.0, kl_est)
+            # The collector records the *true* π_b log-prob of the taken
+            # action in a separate channel that's always populated, even
+            # when ``expose_pi_b=False`` hides it from the algorithm.  Use
+            # that channel to compute KL(true ‖ predicted) on the taken
+            # actions — a one-sample plug-in estimator of the per-state KL.
+            true_lp_buf = getattr(buffer, "true_behaviour_logprob", None)
+            if true_lp_buf is not None and buffer.size > 0:
+                true_lp_taken = true_lp_buf[: buffer.size]
+                finite_mask = ~torch.isnan(true_lp_taken)
+                if bool(finite_mask.any()):
+                    diff = (
+                        true_lp_taken[finite_mask]
+                        - learned_log_probs.detach()[finite_mask]
+                    )
+                    self._pi_b_recovery_kl = max(0.0, float(diff.mean().item()))
+                else:
+                    self._pi_b_recovery_kl = float("nan")
             else:
                 self._pi_b_recovery_kl = float("nan")
         elif buffer.behaviour_logprob is not None and buffer.size > 0:
