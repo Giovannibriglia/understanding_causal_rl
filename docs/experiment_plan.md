@@ -12,6 +12,7 @@ It serves as the authoritative guide for reproducing results.
 | 1 | `smoke` | 30–60 min (GPU) | Algorithm correctness |
 | 1.5 | `horizon_sweep` | ~30 min (CPU) | Δ_TV is horizon-aware |
 | 1.7 | `smoke_v7` | ~10 min (CPU) | v7 acceptance smoke (populates non_id stratum) |
+| 1.8 | `smoke_v8` | ~25 min (CPU) | v8 acceptance smoke (perturbations on, wide bias_strengths) |
 | 2 | `paper` | ~24 h (A100) | Headline figures |
 | 3 | `bias_sweep` | ~8 h (A100) | Confounding sweep figures |
 | 4 | `sample_sweep` | ~4 h (A100) | Sample-size figures |
@@ -94,6 +95,38 @@ python scripts/run_full_matrix.py --config smoke_v7 --n-workers 4
 - `bound_width_mean` is finite for at least some configurations.
 - `min_propensity` varies with behaviour in cells with `pi_b_known=False`.
 - `propensity_calibration_ece` is finite-non-zero in cells 2/4.
+
+---
+
+## Tier 1.8 — v8 Acceptance Smoke
+
+**Config**: `configs/smoke_v8.yaml`
+**Cells**: 1–4 · **Algos**: dqn, cql · **Behaviours**: uniform, reward_aligned, reward_misaligned
+**alpha_conf_sweep**: [0.0, 2.0] · **bias_strengths**: [0.0, 0.25, 0.5, 0.75, 1.0]
+**eval_perturbations**: true (so D_env_KS / D_bisim populate the regression)
+
+```bash
+python scripts/run_full_matrix.py --config smoke_v8 --n-workers 4
+```
+
+Adds three things on top of `smoke_v7`:
+1. Wide ``bias_strengths`` so the natural-bound width moves away from the
+   uniform-policy floor of ``1 - 1/n_actions = 0.875`` and so the
+   ``bias_sweep`` figure captures the predicted monotone trend.
+2. ``reward_misaligned`` behaviour to generate non-uniform action
+   distributions and meaningful per-arm `bound_lower_a*` / `bound_upper_a*`
+   variation.
+3. ``eval_perturbations: true`` so ``D_env_KS``, ``D_bisim``, and
+   ``target_support_overlap`` are populated and the headline regression
+   runs in *generalisation* mode rather than *in-domain* mode.
+
+**Pass criteria** (in addition to v7's):
+- ``bound_width_mean`` standard deviation across runs > 0.05 (was constant
+  at 0.875 in v7).
+- ``D_env_KS`` and ``D_bisim`` columns finite for the majority of perturbed
+  rows.
+- Headline regression mode = ``generalisation`` (recorded in
+  ``headline_regression_meta.json``).
 
 ---
 

@@ -36,6 +36,13 @@ class ReplayBuffer:
         self.reward = torch.zeros((capacity,), dtype=torch.float32, device=device)
         self.done = torch.zeros((capacity,), dtype=torch.float32, device=device)
         self.behaviour_logprob = torch.zeros((capacity,), dtype=torch.float32, device=device)
+        # ``true_behaviour_logprob`` is always populated and never exposed to
+        # the algorithm — the runner uses it for π_b-recovery diagnostics
+        # (e.g. ``pi_b_recovery_kl``) in cells where ``pi_b_known=False``.
+        # NaN-initialised to distinguish "not recorded" from "recorded zero".
+        self.true_behaviour_logprob = torch.full(
+            (capacity,), float("nan"), dtype=torch.float32, device=device
+        )
         self.latent = torch.zeros((capacity, 1), dtype=torch.float32, device=device)
         self._size = 0
         self._ptr = 0
@@ -53,6 +60,7 @@ class ReplayBuffer:
         done: Tensor,
         behaviour_logprob: Tensor | None,
         latent: Tensor | None,
+        true_behaviour_logprob: Tensor | None = None,
     ) -> None:
         """Vectorised batch insert into the circular buffer."""
         n = obs.shape[0]
@@ -67,6 +75,10 @@ class ReplayBuffer:
             self.behaviour_logprob[indices] = behaviour_logprob.view(n).to(self.device)
         else:
             self.behaviour_logprob[indices] = 0.0
+        if true_behaviour_logprob is not None:
+            self.true_behaviour_logprob[indices] = true_behaviour_logprob.view(n).to(
+                self.device
+            )
         if latent is not None:
             self.latent[indices] = latent.view(n, -1).to(self.device)
         else:

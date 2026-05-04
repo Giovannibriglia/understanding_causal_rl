@@ -173,33 +173,38 @@ def make_headline_scatter(
     ax.set_xlabel(r"Final $\widehat{\Delta}_{\mathrm{TV}}$")
     ax.set_ylabel("Return gap to oracle")
 
-    # Annotate the two characteristic clusters: low-Δ_TV / low-gap (id cells)
-    # and high-Δ_TV / high-gap (partial_id cells).  Anchor positions inside
-    # the current axis range so the labels remain visible across runs.
-    if means:
-        all_x = [m[0] for m in means]
-        all_y = [m[1] for m in means]
-        min_x, max_x = min(all_x), max(all_x)
-        min_y, max_y = min(all_y), max(all_y)
-        if max_x - min_x > 1e-6 and max_y - min_y > 1e-6:
-            ax.text(
-                min_x + 0.05 * (max_x - min_x),
-                min_y + 0.10 * (max_y - min_y),
-                "id cells\n(low Δ_TV, low gap)",
-                fontsize=8,
-                color="#2E7D32",
-                ha="left",
-                va="bottom",
-            )
-            ax.text(
-                min_x + 0.65 * (max_x - min_x),
-                min_y + 0.85 * (max_y - min_y),
-                "partial_id cells\n(high Δ_TV, high gap)",
-                fontsize=8,
-                color="#E65100",
-                ha="left",
-                va="top",
-            )
+    # Annotate the two characteristic clusters at the axis margins (not over
+    # the data).  Axes-fraction coordinates put "id" in the lower-left
+    # corner and "partial_id" in the upper-right corner; a translucent box
+    # keeps the label legible even when seed dots happen to be near a corner.
+    bbox = {
+        "boxstyle": "round,pad=0.25",
+        "fc": "white",
+        "ec": "#888888",
+        "alpha": 0.85,
+    }
+    ax.text(
+        0.015,
+        0.015,
+        "id cells\n(low Δ_TV, low gap)",
+        transform=ax.transAxes,
+        fontsize=7,
+        color="#2E7D32",
+        ha="left",
+        va="bottom",
+        bbox=bbox,
+    )
+    ax.text(
+        0.985,
+        0.985,
+        "partial_id cells\n(high Δ_TV, high gap)",
+        transform=ax.transAxes,
+        fontsize=7,
+        color="#E65100",
+        ha="right",
+        va="top",
+        bbox=bbox,
+    )
 
     pdf = output_dir / "headline_gap_vs_oracle.pdf"
     png = output_dir / "headline_gap_vs_oracle.png"

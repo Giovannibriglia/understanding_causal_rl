@@ -1,0 +1,34 @@
+# v8 acceptance smoke: builds on smoke_v7 with the wider bias_strength sweep
+# (so bound widths and coverage metrics actually vary), perturbations turned on
+# (so D_env_KS / D_bisim / target_support_overlap appear in the regression
+# instead of being dropped), and reward_misaligned added so the bound-width
+# panel shows non-uniform per-arm play.
+#
+# ~25 minutes on CPU at n_workers=4.
+cells: [1, 2, 3, 4]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - dqn
+  - cql
+behaviours:
+  - uniform
+  - reward_aligned
+  - reward_misaligned
+seeds: [0, 1, 2]
+total_frames: 2000
+n_checkpoints_train: 5
+n_checkpoints_eval: 5
+env_horizons:
+  tabular-sepsis-v0: 20
+offline_transitions: 4000
+offline_updates: 400
+alpha_conf_sweep: [0.0, 2.0]
+# Wide bias_strengths so the natural-bound width actually moves away from the
+# uniform-policy floor of 1 - 1/n_actions = 0.875 and so the bias_sweep figure
+# captures the predicted monotone trend instead of a near-flat line.
+bias_strengths: [0.0, 0.25, 0.5, 0.75, 1.0]
+n_envs: 16
+# Turn perturbations on so D_env_KS, D_bisim, target_support_overlap and the
+# generalisation-mode headline regression are populated.
+eval_perturbations: true
