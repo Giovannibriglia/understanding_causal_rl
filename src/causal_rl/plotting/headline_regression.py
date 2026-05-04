@@ -36,13 +36,23 @@ _FEATURE_COLS = [
     "overlap_at_1e-2",
     "tail_mass_top10pct",
     "propensity_calibration_ece",
+    "pi_b_recovery_kl",
+    "backdoor_residual_mean",
+    "target_support_overlap",
+    "cond_mi_r_z_given_sa",
     "bias_strength",
     "id_status_ordinal",
     "D_env_KS",
+    "D_bisim",
     "alpha_conf",
     "expose_z",
     "pi_b_known",
 ]
+
+# Always-keep columns: the stratification axis must be available even if it
+# happens to be collinear with another feature, because the stratified-R²
+# block reads from it.
+_NEVER_DROP = {"id_status_ordinal"}
 
 _ID_STATUS_COLORS = {"id": "#4CAF50", "partial_id": "#FF9800", "non_id": "#F44336"}
 
@@ -54,11 +64,67 @@ def _safe_float(val: object, default: float = 0.0) -> float:
         return default
 
 
+def _row_from_eval(
+    last_eval: dict[str, str],
+    target_G: float,
+    *,
+    D_env_KS: float | None = None,
+    D_bisim: float | None = None,
+    eps_T: float = 0.0,
+    eps_R: float = 0.0,
+) -> dict[str, Any]:
+    id_status = str(last_eval.get("id_status", "non_id"))
+    return {
+        "G": target_G,
+        "id_status": id_status,
+        "id_status_ordinal": ID_STATUS_ORDER.get(id_status, 2),
+        "delta_tv": _safe_float(last_eval.get("delta_tv")),
+        "bound_width_mean": _safe_float(last_eval.get("bound_width_mean")),
+        "min_propensity": _safe_float(last_eval.get("min_propensity")),
+        "ess_ratio": _safe_float(last_eval.get("ess_ratio")),
+        "overlap_at_1e-2": _safe_float(last_eval.get("overlap_at_1e-2")),
+        "tail_mass_top10pct": _safe_float(last_eval.get("tail_mass_top10pct")),
+        "propensity_calibration_ece": _safe_float(
+            last_eval.get("propensity_calibration_ece"), default=float("nan")
+        ),
+        "pi_b_recovery_kl": _safe_float(
+            last_eval.get("pi_b_recovery_kl"), default=float("nan")
+        ),
+        "backdoor_residual_mean": _safe_float(
+            last_eval.get("backdoor_residual_mean"), default=float("nan")
+        ),
+        "target_support_overlap": _safe_float(
+            last_eval.get("target_support_overlap"), default=float("nan")
+        ),
+        "cond_mi_r_z_given_sa": _safe_float(
+            last_eval.get("cond_mi_r_z_given_sa"), default=float("nan")
+        ),
+        "bias_strength": _safe_float(last_eval.get("bias_strength"), default=1.0),
+        "D_env_KS": (
+            float(D_env_KS) if D_env_KS is not None else float("nan")
+        ),
+        "D_bisim": float(D_bisim) if D_bisim is not None else float("nan"),
+        "alpha_conf": _safe_float(last_eval.get("alpha_conf")),
+        "expose_z": _safe_float(last_eval.get("expose_z")),
+        "pi_b_known": _safe_float(last_eval.get("pi_b_known")),
+        "eps_T": float(eps_T),
+        "eps_R": float(eps_R),
+    }
+
+
 def _load_joined_data(
     results_dir: Path,
-) -> list[dict[str, Any]]:
-    """Join eval.csv, train.csv, and eval_perturbed.csv on run identity."""
+) -> tuple[list[dict[str, Any]], str]:
+    """Join eval.csv with eval_perturbed.csv when available; otherwise fall
+    back to in-domain mode (G = oracle - eval_return).
+
+    Returns ``(rows, mode)`` where ``mode`` is one of
+    ``"generalisation"``, ``"in_domain"`` (only ``eval.csv`` available), or
+    ``"empty"`` (no usable rows).
+    """
     rows: list[dict[str, Any]] = []
+    n_with_perturbed = 0
+    n_without_perturbed = 0
     for eval_path in results_dir.rglob("eval.csv"):
         run_dir = eval_path.parent
         with eval_path.open("r", encoding="utf-8") as f:
@@ -66,44 +132,47 @@ def _load_joined_data(
         if not eval_rows:
             continue
         last_eval = eval_rows[-1]
-
-        # Try to load perturbed eval
-        perturbed_path = run_dir / "eval_perturbed.csv"
-        if not perturbed_path.exists():
-            continue
-        with perturbed_path.open("r", encoding="utf-8") as f:
-            perturbed_rows = list(csv.DictReader(f))
-        if not perturbed_rows:
-            continue
-
         oracle_return = _safe_float(last_eval.get("eval_oracle_return_mean"))
-        for pr in perturbed_rows:
-            perturbed_return = _safe_float(pr.get("eval_perturbed_return_mean"))
-            G = oracle_return - perturbed_return  # noqa: N806
-            id_status = str(last_eval.get("id_status", "non_id"))
-            row: dict[str, Any] = {
-                "G": G,
-                "id_status": id_status,
-                "id_status_ordinal": ID_STATUS_ORDER.get(id_status, 2),
-                "delta_tv": _safe_float(last_eval.get("delta_tv")),
-                "bound_width_mean": _safe_float(last_eval.get("bound_width_mean")),
-                "min_propensity": _safe_float(last_eval.get("min_propensity")),
-                "ess_ratio": _safe_float(last_eval.get("ess_ratio")),
-                "overlap_at_1e-2": _safe_float(last_eval.get("overlap_at_1e-2")),
-                "tail_mass_top10pct": _safe_float(last_eval.get("tail_mass_top10pct")),
-                "propensity_calibration_ece": _safe_float(
-                    last_eval.get("propensity_calibration_ece"), default=float("nan")
-                ),
-                "bias_strength": _safe_float(last_eval.get("bias_strength"), default=1.0),
-                "D_env_KS": _safe_float(pr.get("D_env_KS")),
-                "alpha_conf": _safe_float(last_eval.get("alpha_conf")),
-                "expose_z": _safe_float(last_eval.get("expose_z")),
-                "pi_b_known": _safe_float(last_eval.get("pi_b_known")),
-                "eps_T": _safe_float(pr.get("eps_T")),
-                "eps_R": _safe_float(pr.get("eps_R")),
-            }
-            rows.append(row)
-    return rows
+        eval_return = _safe_float(last_eval.get("eval_return_mean"))
+
+        perturbed_path = run_dir / "eval_perturbed.csv"
+        perturbed_rows: list[dict[str, str]] = []
+        if perturbed_path.exists():
+            with perturbed_path.open("r", encoding="utf-8") as f:
+                perturbed_rows = list(csv.DictReader(f))
+
+        if perturbed_rows:
+            n_with_perturbed += 1
+            for pr in perturbed_rows:
+                perturbed_return = _safe_float(pr.get("eval_perturbed_return_mean"))
+                rows.append(
+                    _row_from_eval(
+                        last_eval,
+                        target_G=oracle_return - perturbed_return,
+                        D_env_KS=_safe_float(pr.get("D_env_KS")),
+                        D_bisim=_safe_float(pr.get("D_bisim"), default=float("nan")),
+                        eps_T=_safe_float(pr.get("eps_T")),
+                        eps_R=_safe_float(pr.get("eps_R")),
+                    )
+                )
+        else:
+            n_without_perturbed += 1
+            # In-domain fallback: G = within-train return gap.
+            rows.append(
+                _row_from_eval(
+                    last_eval,
+                    target_G=oracle_return - eval_return,
+                )
+            )
+    if not rows:
+        return rows, "empty"
+    # Mode = "generalisation" iff every joined row came from a perturbed CSV.
+    if n_with_perturbed > 0 and n_without_perturbed == 0:
+        return rows, "generalisation"
+    if n_without_perturbed > 0 and n_with_perturbed == 0:
+        return rows, "in_domain"
+    # Mixed: prefer the larger source.
+    return rows, ("generalisation" if n_with_perturbed >= n_without_perturbed else "in_domain")
 
 
 _MIN_SAMPLES_CV = 6
@@ -133,21 +202,53 @@ def _safe_cv_r2(
     return float(np.mean(scores))
 
 
+def _is_constant(column: np.ndarray[Any, Any]) -> bool:
+    """Constant means strictly identical (up to NaN) across samples."""
+    finite = column[~np.isnan(column)] if column.dtype.kind == "f" else column
+    if finite.size == 0:
+        return True
+    return bool(np.unique(finite).size <= 1)
+
+
+def _partial_r2(
+    X: np.ndarray[Any, Any],  # noqa: N803
+    y: np.ndarray[Any, Any],
+    feature_idx: int,
+    estimator_factory: Any,
+) -> float:
+    """R² gain attributable to a single feature.
+
+    Equals ``R²(X) - R²(X without feature_idx)``.  Clamped to ``[0, 1]``.
+    """
+    full = estimator_factory().fit(X, y).score(X, y)
+    if X.shape[1] <= 1:
+        return max(0.0, min(1.0, full))
+    X_drop = np.delete(X, feature_idx, axis=1)  # noqa: N806
+    drop = estimator_factory().fit(X_drop, y).score(X_drop, y)
+    return float(max(0.0, full - drop))
+
+
 def make_headline_regression(
     results_dir: Path,
     output_dir: Path,
 ) -> None:
     """Fit and plot the headline regression.
 
-    Requires scikit-learn. Generates:
-      - headline_regression_table.csv
-      - headline_stratified_r2.csv
-      - headline_pure_divergence.pdf
-      - headline_fitted.pdf
+    Two-mode operation:
+
+    * **Generalisation mode** when ``eval_perturbed.csv`` is available — target
+      is ``G = oracle_return - perturbed_return``.
+    * **In-domain mode** when only ``eval.csv`` is available — target is
+      ``G = oracle_return - eval_return``.
+
+    Generates ``headline_regression_table.csv``, ``headline_stratified_r2.csv``,
+    ``headline_pure_divergence.pdf``, ``headline_fitted.pdf`` and a
+    ``headline_regression_meta.json`` with the run mode.
     """
     try:
         from sklearn.ensemble import RandomForestRegressor  # type: ignore[import-untyped]
         from sklearn.linear_model import LinearRegression  # type: ignore[import-untyped]
+        from sklearn.linear_model import RidgeCV  # type: ignore[import-untyped]
         from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
     except ImportError as e:
         raise ImportError(
@@ -158,44 +259,53 @@ def make_headline_regression(
     apply_style()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    rows = _load_joined_data(results_dir)
+    rows, mode = _load_joined_data(results_dir)
+    print(f"[headline_regression] mode = {mode}, n_rows = {len(rows)}")
     if len(rows) < 10:
         return
 
     # Build feature matrix
     feature_cols = [c for c in _FEATURE_COLS if c in rows[0]]
     X_raw = np.array(  # noqa: N806
-        [[r.get(c, 0.0) for c in feature_cols] for r in rows], dtype=np.float64
+        [[r.get(c, float("nan")) for c in feature_cols] for r in rows], dtype=np.float64
     )
     y = np.array([r["G"] for r in rows], dtype=np.float64)
     id_statuses = [str(r["id_status"]) for r in rows]
 
-    # Impute NaN propensity ECE with median
-    ece_col = (
-        feature_cols.index("propensity_calibration_ece")
-        if "propensity_calibration_ece" in feature_cols
-        else -1
-    )
-    if ece_col >= 0:
-        mask = np.isnan(X_raw[:, ece_col])
-        if mask.any() and (~mask).any():
-            X_raw[mask, ece_col] = np.nanmedian(X_raw[:, ece_col])
-        elif mask.all():
-            X_raw[:, ece_col] = 0.0
+    # NaN imputation: replace per-column NaNs with that column's median
+    # (or 0 when entirely NaN).  This is gentler than zeroing everything
+    # and keeps the surviving signal usable for regression.
+    for j in range(X_raw.shape[1]):
+        col = X_raw[:, j]
+        nan_mask = np.isnan(col)
+        if nan_mask.all():
+            X_raw[:, j] = 0.0
+            continue
+        if nan_mask.any():
+            X_raw[nan_mask, j] = float(np.nanmedian(col))
 
-    # Drop constant features (std < 1e-8) before scaling — they produce
-    # meaningless zero coefficients and clutter the regression table.
-    feature_stds = X_raw.std(axis=0)
-    keep_mask = feature_stds >= 1e-8
-    dropped_constant_features = [feature_cols[i] for i in range(len(feature_cols)) if not keep_mask[i]]
+    # Drop *truly* constant features (single unique value).  Variable but
+    # tiny-variance features are kept so RidgeCV can shrink them on its own.
+    keep_mask = np.array(
+        [
+            (feature_cols[i] in _NEVER_DROP) or not _is_constant(X_raw[:, i])
+            for i in range(len(feature_cols))
+        ]
+    )
+    dropped_constant_features = [
+        feature_cols[i] for i in range(len(feature_cols)) if not keep_mask[i]
+    ]
     feature_cols = [feature_cols[i] for i in range(len(feature_cols)) if keep_mask[i]]
     X_raw = X_raw[:, keep_mask]
 
     scaler = StandardScaler()
     X = scaler.fit_transform(X_raw)  # noqa: N806
 
-    # Pooled linear regression
-    lin = LinearRegression()
+    # Use RidgeCV: handles collinear features gracefully via L2.
+    def _make_lin() -> Any:
+        return RidgeCV(alphas=(0.01, 0.1, 1.0, 10.0))
+
+    lin = _make_lin()
     lin.fit(X, y)
     y_pred_lin = lin.predict(X)
     r2_train = _r2_score(y, y_pred_lin)
@@ -239,15 +349,65 @@ def make_headline_regression(
         )
     strat_r2_rows.append({"stratum": "pooled", "r2_train": r2_train, "r2_cv": r2_cv, "n": n})
 
+    # Per-feature partial R² (gain over leave-one-out baseline).
+    partial_r2 = np.zeros(len(feature_cols))
+    for i in range(len(feature_cols)):
+        try:
+            partial_r2[i] = _partial_r2(X, y, i, _make_lin)
+        except Exception:  # noqa: BLE001
+            partial_r2[i] = float("nan")
+
     # Save regression table (includes dropped constant features with coef=NaN).
     table_path = output_dir / "headline_regression_table.csv"
     with table_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["feature", "coef", "ci_lo", "ci_hi", "importance_rf", "dropped"])
+        writer.writerow(
+            ["feature", "coef", "ci_lo", "ci_hi", "importance_rf", "partial_r2", "dropped"]
+        )
         for i, feat in enumerate(feature_cols):
-            writer.writerow([feat, lin.coef_[i], ci_lo[i], ci_hi[i], rf_importances[i], False])
+            writer.writerow(
+                [
+                    feat,
+                    lin.coef_[i],
+                    ci_lo[i],
+                    ci_hi[i],
+                    rf_importances[i],
+                    float(partial_r2[i]),
+                    False,
+                ]
+            )
         for feat in dropped_constant_features:
-            writer.writerow([feat, float("nan"), float("nan"), float("nan"), float("nan"), True])
+            writer.writerow(
+                [
+                    feat,
+                    float("nan"),
+                    float("nan"),
+                    float("nan"),
+                    float("nan"),
+                    float("nan"),
+                    True,
+                ]
+            )
+
+    # Save mode metadata.
+    import json as _json
+
+    meta_path = output_dir / "headline_regression_meta.json"
+    meta_path.write_text(
+        _json.dumps(
+            {
+                "mode": mode,
+                "n_rows": len(rows),
+                "n_features_kept": len(feature_cols),
+                "n_features_dropped": len(dropped_constant_features),
+                "dropped_features": dropped_constant_features,
+                "r2_pooled_train": r2_train,
+                "r2_pooled_cv": r2_cv,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     # Save stratified R² table
     strat_path = output_dir / "headline_stratified_r2.csv"

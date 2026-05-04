@@ -148,7 +148,8 @@ python scripts/run_full_matrix.py --config bias_sweep --n-workers 4
 ## Tier 4 — Sample Sweep
 
 **Config**: `configs/sample_sweep.yaml`
-**Algos**: cql, bound_cql · **alpha_conf_sweep**: [0.0, 2.0] · **Seeds**: 5 · **eval_perturbations**: off
+**Algos**: cql, dqn · **alpha_conf_sweep**: [0.0, 2.0] · **Seeds**: 3
+**offline_transitions_sweep**: [500, 2000, 8000, 32000] · **eval_perturbations**: off
 
 ```bash
 python scripts/run_full_matrix.py --config sample_sweep --n-workers 4

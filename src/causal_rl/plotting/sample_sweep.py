@@ -67,6 +67,15 @@ def make_sample_sweep(
     if not data:
         return
 
+    # Refuse to render a degenerate plot when no actual sweep is present.
+    distinct_n = {n for cell_d in data.values() for n in cell_d}
+    if len(distinct_n) < 3:
+        print(
+            "[sample_sweep] skipped: needs >= 3 distinct offline_transitions values "
+            f"in the manifest (found {sorted(distinct_n)})."
+        )
+        return
+
     fig, ax = plt.subplots(figsize=(7, 4))
     cells = sorted(data.keys())
     for cell in cells:

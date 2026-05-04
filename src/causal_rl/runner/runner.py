@@ -30,15 +30,20 @@ from causal_rl.envs.registry import make as make_env
 from causal_rl.envs.tabular_sepsis import TabularSepsisEnv
 from causal_rl.identification.bounds import natural_bounds
 from causal_rl.identification.id_oracle import get_id_status
+from causal_rl.metrics.backdoor import backdoor_residual_summary
 from causal_rl.metrics.calibration import expected_calibration_error
 from causal_rl.metrics.coverage import (
     PropensityModel,
     effective_sample_size_ratio,
+    expected_calibration_error as expected_calibration_error_2d,
     fit_propensity_model,
     min_propensity,
+    pi_b_recovery_kl,
     support_overlap,
     tail_mass_top_q,
+    target_support_overlap,
 )
+from causal_rl.metrics.info_bottleneck import conditional_mi_lower_bound
 from causal_rl.metrics.d_env import d_env_ks
 from causal_rl.metrics.runner_hooks import compute_gap_metrics
 from causal_rl.runner.collector import collect_offline_dataset
@@ -176,6 +181,14 @@ class BenchmarkRunner:
         self._coverage_metrics: dict[str, float] = {}
         self._bound_metrics: dict[str, float] = {}
         self._propensity_calibration_ece: float = float("nan")
+        self._pi_b_recovery_kl: float = float("nan")
+        self._propensity_model: PropensityModel | None = None
+        self._extra_metrics: dict[str, float] = {
+            "backdoor_residual_mean": float("nan"),
+            "backdoor_residual_max": float("nan"),
+            "target_support_overlap": float("nan"),
+            "cond_mi_r_z_given_sa": float("nan"),
+        }
 
     def _make_behaviour_with_bias(self, name: str, **kwargs: object) -> object:
         # Pass bias_strength only when the behaviour constructor accepts it.
@@ -297,11 +310,29 @@ class BenchmarkRunner:
         row["overlap_at_1e-2"] = self._coverage_metrics.get("overlap_at_1e-2", float("nan"))
         row["tail_mass_top10pct"] = self._coverage_metrics.get("tail_mass_top10pct", float("nan"))
         row["propensity_calibration_ece"] = self._propensity_calibration_ece
+        row["pi_b_recovery_kl"] = self._pi_b_recovery_kl
         row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
         row["bound_width_max"] = self._bound_metrics.get("bound_width_max", float("nan"))
         row["n_arms_with_informative_bound"] = self._bound_metrics.get(
             "n_arms_with_informative_bound", self.algo.n_informative_bounds()
         )
+        for a in range(8):
+            row[f"bound_lower_a{a}"] = self._bound_metrics.get(
+                f"bound_lower_a{a}", float("nan")
+            )
+            row[f"bound_upper_a{a}"] = self._bound_metrics.get(
+                f"bound_upper_a{a}", float("nan")
+            )
+            row[f"obs_arm_count_a{a}"] = self._bound_metrics.get(
+                f"obs_arm_count_a{a}", 0
+            )
+        for k in (
+            "backdoor_residual_mean",
+            "backdoor_residual_max",
+            "target_support_overlap",
+            "cond_mi_r_z_given_sa",
+        ):
+            row[k] = self._extra_metrics.get(k, float("nan"))
         self.train_logger.write(row)
 
     def _log_eval(
@@ -348,11 +379,29 @@ class BenchmarkRunner:
         row["overlap_at_1e-2"] = self._coverage_metrics.get("overlap_at_1e-2", float("nan"))
         row["tail_mass_top10pct"] = self._coverage_metrics.get("tail_mass_top10pct", float("nan"))
         row["propensity_calibration_ece"] = self._propensity_calibration_ece
+        row["pi_b_recovery_kl"] = self._pi_b_recovery_kl
         row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
         row["bound_width_max"] = self._bound_metrics.get("bound_width_max", float("nan"))
         row["n_arms_with_informative_bound"] = self._bound_metrics.get(
             "n_arms_with_informative_bound", float("nan")
         )
+        for a in range(8):
+            row[f"bound_lower_a{a}"] = self._bound_metrics.get(
+                f"bound_lower_a{a}", float("nan")
+            )
+            row[f"bound_upper_a{a}"] = self._bound_metrics.get(
+                f"bound_upper_a{a}", float("nan")
+            )
+            row[f"obs_arm_count_a{a}"] = self._bound_metrics.get(
+                f"obs_arm_count_a{a}", 0
+            )
+        for k in (
+            "backdoor_residual_mean",
+            "backdoor_residual_max",
+            "target_support_overlap",
+            "cond_mi_r_z_given_sa",
+        ):
+            row[k] = self._extra_metrics.get(k, float("nan"))
         self.eval_logger.write(row)
 
     def _compute_coverage_metrics(self, log_probs: torch.Tensor) -> None:
@@ -365,18 +414,26 @@ class BenchmarkRunner:
 
     def _compute_bound_metrics(self, actions: torch.Tensor, rewards: torch.Tensor) -> None:
         # Compute Bareinboim natural-bound metrics for any discrete-action run.
-        # The values are only acted on by bound_cql / ucb_plus, but they are
-        # informative covariates for the headline regression in every run.
+        # Emits per-arm lower/upper/count so downstream figures (bound_width
+        # panel) can scatter per-arm points instead of a degenerate per-run
+        # mean.  bound_cql and ucb_plus also consume the aggregates.
+        n_actions = 8
+        nan_per_arm: dict[str, float] = {
+            **{f"bound_lower_a{a}": float("nan") for a in range(n_actions)},
+            **{f"bound_upper_a{a}": float("nan") for a in range(n_actions)},
+            **{f"obs_arm_count_a{a}": 0 for a in range(n_actions)},
+        }
         if not self.env.is_discrete_action or actions.numel() == 0:
             self._bound_metrics = {
                 "bound_width_mean": float("nan"),
                 "bound_width_max": float("nan"),
                 "n_arms_with_informative_bound": float("nan"),
+                **nan_per_arm,
             }
             return
         acts = actions.view(-1).long()
         rewards_01 = ((rewards.view(-1).float() + 1.0) / 2.0).clamp(0.0, 1.0)
-        bounds = natural_bounds(acts, rewards_01, n_actions=8, n_bootstrap=200)
+        bounds = natural_bounds(acts, rewards_01, n_actions=n_actions, n_bootstrap=200)
         widths = [r.upper - r.lower for r in bounds.values()]
         # Bareinboim's "informative" criterion: an arm's upper bound lies below
         # the best lower bound across arms (so the arm can be excluded as
@@ -384,11 +441,83 @@ class BenchmarkRunner:
         # in the limit of small p_a and produced an almost-always-zero indicator.
         mu_lower_max = max(r.lower for r in bounds.values())
         n_inf = sum(1 for r in bounds.values() if r.upper < mu_lower_max)
+        per_arm: dict[str, float] = {}
+        for a in range(n_actions):
+            r = bounds[a]
+            per_arm[f"bound_lower_a{a}"] = float(r.lower)
+            per_arm[f"bound_upper_a{a}"] = float(r.upper)
+            per_arm[f"obs_arm_count_a{a}"] = int((acts == a).sum().item())
         self._bound_metrics = {
             "bound_width_mean": float(sum(widths) / len(widths)),
             "bound_width_max": float(max(widths)),
             "n_arms_with_informative_bound": float(n_inf),
+            **per_arm,
         }
+
+    def _compute_extra_metrics(
+        self,
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        latent_z: torch.Tensor | None,
+    ) -> None:
+        """Compute the v8 metrics: backdoor residual, target support overlap,
+        and ``I(R; Z | S, A)`` lower bound.
+
+        These all run on the offline buffer or the most recent rollout,
+        with quiet NaN fallbacks when the inputs aren't available."""
+        if not self.env.is_discrete_action:
+            return
+        n_actions = 8
+        # 5.1 backdoor residual.  Z is observable in cells with expose_z=True;
+        # we use the env-supplied latent_Z when available and treat hidden Z
+        # as a NaN signal.  Only use latent_z when its leading dim matches
+        # ``actions`` — the online path concatenates rollouts, in which case
+        # the per-step ``info`` snapshot is too small.
+        z_obs = None
+        if self.cell_cfg.expose_z and latent_z is not None:
+            if latent_z.shape[0] == actions.view(-1).shape[0]:
+                z_obs = latent_z
+        try:
+            self._extra_metrics.update(
+                backdoor_residual_summary(actions, rewards, z_obs, n_actions=n_actions)
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        # 5.2 target_support_overlap: needs a propensity model and target-policy
+        # actions on a held-out batch of observations.  Fitted on the same
+        # buffer that produced the coverage metrics; reused via _propensity_model.
+        try:
+            if self._propensity_model is not None:
+                with torch.no_grad():
+                    behaviour_lp = self._propensity_model(obs)  # (N, n_actions)
+                    target_actions, _ = self.algo.select_action(obs, deterministic=True)
+                tso = target_support_overlap(
+                    target_actions.view(-1), behaviour_lp, tau=1e-2
+                )
+                self._extra_metrics["target_support_overlap"] = float(tso.item())
+        except Exception:  # noqa: BLE001
+            pass
+        # 5.3 conditional MI: only meaningful when latent_z is exposed and
+        # aligned with the action/reward batch.
+        if (
+            latent_z is not None
+            and latent_z.shape[0] == actions.view(-1).shape[0]
+            and obs.shape[0] >= 64
+        ):
+            try:
+                # Cap sample size for runtime predictability.
+                n = min(int(obs.shape[0]), 1024)
+                mi = conditional_mi_lower_bound(
+                    obs[:n].detach(),
+                    actions[:n].detach(),
+                    rewards[:n].detach(),
+                    latent_z[:n].detach(),
+                    n_epochs=40,
+                )
+                self._extra_metrics["cond_mi_r_z_given_sa"] = float(mi)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _evaluate_policy(self, seed: int) -> torch.Tensor:
         cpu_rng_state = torch.get_rng_state()
@@ -686,6 +815,12 @@ class BenchmarkRunner:
                     train_env_for_ks.close()
                     target_env_for_ks.close()
 
+                # Compute bisimulation distance for tabular envs.
+                # Done on a small random subset of states to keep iteration cost
+                # bounded; the resulting scalar is the mean diagonal of the
+                # pairwise bisim metric over that subset.
+                d_bisim_val = self._compute_bisim_distance(spec)
+
                 self.perturbed_logger.write(
                     {
                         "step": step,
@@ -701,12 +836,63 @@ class BenchmarkRunner:
                         "eval_perturbed_return_mean": float(ret_tensor.mean().item()),
                         "eval_perturbed_return_std": float(ret_tensor.std().item()),
                         "D_env_KS": ks_val,
+                        "D_bisim": d_bisim_val,
                     }
                 )
         finally:
             torch.set_rng_state(cpu_rng_state)
             if cuda_rng_state is not None:
                 torch.cuda.set_rng_state_all(cuda_rng_state)
+
+    def _compute_bisim_distance(self, spec: PerturbationSpec) -> float:
+        """Average bisim distance between the train env and a perturbed copy.
+
+        Returns ``NaN`` when the env isn't tabular sepsis (continuous-ward
+        bisim needs a samples-based approximation, deferred).  For runtime
+        safety on the 1440-state sepsis MDP, we sample a random
+        ``n_subset``-dim subset of states and compute the bisim metric on
+        that submatrix only.
+        """
+        from causal_rl.metrics.bisimulation import bisimulation_distance
+
+        if not isinstance(self.env, TabularSepsisEnv):
+            return float("nan")
+        try:
+            base_env = self._make_eval_env_instance()
+            target_env = self._make_perturbed_env(spec)
+        except Exception:  # noqa: BLE001
+            return float("nan")
+        try:
+            n_subset = 24  # bound runtime: 24x24 fixed-point.
+            n_states = int(base_env.transition.shape[0])
+            n_actions = int(base_env.transition.shape[1])
+            torch.manual_seed(0)
+            idx = torch.randperm(n_states)[:n_subset]
+            # Project transitions onto the subset and renormalise per row.
+            base_t = base_env.transition[idx][:, :, idx]
+            tgt_t = target_env.transition[idx][:, :, idx]
+            base_t = base_t / (base_t.sum(dim=-1, keepdim=True).clamp(min=1e-9))
+            tgt_t = tgt_t / (tgt_t.sum(dim=-1, keepdim=True).clamp(min=1e-9))
+            # Expected reward = P(R=+1) - P(R=-1).
+            base_r = base_env.reward_probs[idx, :, 1] - base_env.reward_probs[idx, :, 0]
+            tgt_r = target_env.reward_probs[idx, :, 1] - target_env.reward_probs[idx, :, 0]
+            d = bisimulation_distance(
+                base_r,
+                base_t,
+                tgt_r,
+                tgt_t,
+                gamma=float(base_env.gamma) if float(base_env.gamma) < 1.0 else 0.99,
+                n_iters=15,
+            )
+            return float(torch.diagonal(d).mean().item())
+        except Exception:  # noqa: BLE001
+            return float("nan")
+        finally:
+            try:
+                base_env.close()
+                target_env.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     def run(self) -> None:
         if ALGOS[self.config.algorithm].kind == "off_policy":
@@ -767,6 +953,17 @@ class BenchmarkRunner:
                 logp_batch = torch.cat(logp_buf, dim=0)
                 self._compute_coverage_metrics(logp_batch.view(-1))
                 self._compute_bound_metrics(action_batch, reward_batch)
+                # v8: extra metrics on the rollout buffer.  Latent_z is read
+                # from the most recent ``info`` dict when expose_z=True.
+                latent_z = None
+                if isinstance(info, dict):
+                    latent_z = info.get("latent_Z")
+                try:
+                    self._compute_extra_metrics(
+                        obs_batch, action_batch, reward_batch, latent_z
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 returns = returns_t.reshape(-1)
                 value_old = torch.zeros_like(returns)
                 adv = returns.clone()
@@ -845,24 +1042,66 @@ class BenchmarkRunner:
             model: PropensityModel = fit_propensity_model(
                 buffer.obs[: buffer.size], buffer.action[: buffer.size], n_actions=8
             )
+            self._propensity_model = model
             with torch.no_grad():
                 pred_lp_per_action = model(buffer.obs[: buffer.size])  # (N, 8)
             actions_taken = buffer.action[: buffer.size].view(-1, 1).long()
             learned_log_probs = pred_lp_per_action.gather(1, actions_taken).squeeze(-1)
             self._compute_coverage_metrics(learned_log_probs)
-            # The metrics.calibration ECE expects a 1-D probability per
-            # observation: pass the predicted prob of the action TAKEN.
-            ece = expected_calibration_error(
-                pred_lp_per_action.gather(1, actions_taken).squeeze(-1).exp(),
-                (buffer.reward[: buffer.size].view(-1) > 0.0).float(),
+            # ECE on the (N, n_actions) log-prob matrix vs the integer actions
+            # that were *actually taken* — i.e. how well-calibrated is the
+            # model's "what action did the behaviour pick?" classifier.
+            ece = expected_calibration_error_2d(
+                pred_lp_per_action,
+                buffer.action[: buffer.size].view(-1).long(),
                 n_bins=10,
             )
             self._propensity_calibration_ece = (
                 float(ece.item()) if hasattr(ece, "item") else float(ece)
             )
+            # When the *true* π_b is also exposed (rare in offline cells but
+            # check anyway), record KL(true ‖ predicted) as a sanity check.
+            if (
+                buffer.behaviour_logprob is not None
+                and buffer.size > 0
+                and bool(buffer.behaviour_logprob[: buffer.size].abs().sum() > 0.0)
+            ):
+                # Reconstruct the true π_b log-probs for all actions.  Without
+                # the per-action distribution we approximate by spreading the
+                # log-prob of the taken action uniformly: this isn't perfect
+                # but gives a finite KL in cells where π_b is partially
+                # exposed.
+                # (Full per-action ground truth is available only in cell 1/3.)
+                true_lp_taken = buffer.behaviour_logprob[: buffer.size]
+                # KL between two delta-style distributions reduces to a
+                # simple per-sample quantity.  We compute it as the mean of
+                # (log p_true(a) - log p_pred(a)) on the taken actions, which
+                # is an unbiased estimator of E_{p_true}[log p_true / p_pred].
+                kl_est = float(
+                    (true_lp_taken - learned_log_probs.detach()).mean().item()
+                )
+                self._pi_b_recovery_kl = max(0.0, kl_est)
+            else:
+                self._pi_b_recovery_kl = float("nan")
         elif buffer.behaviour_logprob is not None and buffer.size > 0:
             self._compute_coverage_metrics(buffer.behaviour_logprob[: buffer.size])
             self._propensity_calibration_ece = float("nan")
+            # When π_b is fully known the recovery KL is by definition zero.
+            self._pi_b_recovery_kl = 0.0
+        # v8 metrics — backdoor residual, target overlap, conditional MI.
+        if buffer.size > 0:
+            try:
+                self._compute_extra_metrics(
+                    buffer.obs[: buffer.size],
+                    buffer.action[: buffer.size],
+                    buffer.reward[: buffer.size],
+                    buffer.latent[: buffer.size]
+                    if buffer.latent is not None
+                    else None,
+                )
+            except Exception:  # noqa: BLE001
+                # Never fail a run because of a metric error.
+                pass
         episode = 0
         total_updates = self.config.total_frames
         train_ticks = checkpoint_ticks(total_updates, self.config.n_checkpoints_train)

@@ -1,9 +1,13 @@
-"""Bias/coverage sweep figure (Phase D.1).
+"""Bias / coverage sweep figure.
 
-Three subplots sharing the x-axis (bias_strength):
-  Left:   delta_tv with shaded bootstrap CI.
-  Middle: min_propensity and ess_ratio on twin axes.
-  Right:  eval_oracle_return_mean - eval_return_mean, one line per cell.
+Four subplots sharing the x-axis (``bias_strength``):
+  Panel 0: Δ̂_TV vs bias_strength (one line per id_status).
+  Panel 1: ESS vs bias_strength on log-y.
+  Panel 2: ``min_propensity`` vs bias_strength on log-y.
+  Panel 3: return gap to oracle vs bias_strength.
+
+Lines are coloured by ``id_status`` (the paper's primary stratification
+axis), with shaded bootstrap CIs from ``delta_tv_ci_lo / ci_hi``.
 """
 
 from __future__ import annotations
@@ -17,19 +21,18 @@ import numpy as np
 
 from causal_rl.plotting.style import apply_style
 
-_CELL_COLORS = {1: "#4CAF50", 2: "#2196F3", 3: "#FF9800", 4: "#F44336"}
+_ID_STATUS_COLORS = {"id": "#4CAF50", "partial_id": "#FF9800", "non_id": "#F44336"}
 
 
 def make_bias_sweep(
     results_dir: Path,
     output_dir: Path,
 ) -> None:
-    """Generate bias_sweep.pdf from run results."""
     apply_style()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect data: {cell: {bias_strength: {metric: [values]}}}
-    data: dict[int, dict[float, dict[str, list[float]]]] = defaultdict(
+    # Collect data: {id_status: {bias_strength: {metric: [values]}}}
+    data: dict[str, dict[float, dict[str, list[float]]]] = defaultdict(
         lambda: defaultdict(lambda: defaultdict(list))
     )
 
@@ -43,8 +46,8 @@ def make_bias_sweep(
             continue
         last = rows[-1]
         try:
-            cell = int(last.get("cell", 0))
             bias_strength = float(last.get("bias_strength", 1.0))
+            id_status = str(last.get("id_status", "non_id"))
             delta_tv = float(last.get("delta_tv", 0.0))
             ci_lo = float(last.get("delta_tv_ci_lo", delta_tv))
             ci_hi = float(last.get("delta_tv_ci_hi", delta_tv))
@@ -55,7 +58,7 @@ def make_bias_sweep(
             ess = float(last.get("ess_ratio", 0.0))
         except (ValueError, KeyError):
             continue
-        d = data[cell][bias_strength]
+        d = data[id_status][bias_strength]
         d["delta_tv"].append(delta_tv)
         d["ci_lo"].append(ci_lo)
         d["ci_hi"].append(ci_hi)
@@ -66,43 +69,66 @@ def make_bias_sweep(
     if not data:
         return
 
-    cells = sorted(data.keys())
-    fig, (ax_tv, ax_prop, ax_gap) = plt.subplots(1, 3, figsize=(12, 4), sharey=False)
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4), sharex=True)
+    ax_tv, ax_ess, ax_prop, ax_gap = axes
 
-    for cell in cells:
-        color = _CELL_COLORS.get(cell, "gray")
-        bs_vals = sorted(data[cell].keys())
-        tv_means = [float(np.mean(data[cell][bs]["delta_tv"])) for bs in bs_vals]
-        ci_lo_m = [float(np.mean(data[cell][bs]["ci_lo"])) for bs in bs_vals]
-        ci_hi_m = [float(np.mean(data[cell][bs]["ci_hi"])) for bs in bs_vals]
-        gap_means = [float(np.mean(data[cell][bs]["gap"])) for bs in bs_vals]
-        prop_means = [float(np.mean(data[cell][bs]["min_propensity"])) for bs in bs_vals]
-        ess_means = [float(np.mean(data[cell][bs]["ess_ratio"])) for bs in bs_vals]
-
+    for status in ["id", "partial_id", "non_id"]:
+        if status not in data:
+            continue
+        color = _ID_STATUS_COLORS.get(status, "gray")
+        bs_vals = sorted(data[status].keys())
+        if not bs_vals:
+            continue
         x = np.array(bs_vals, dtype=np.float64)
-        ax_tv.plot(x, tv_means, color=color, label=f"cell {cell}")
-        ax_tv.fill_between(x, ci_lo_m, ci_hi_m, color=color, alpha=0.2)
-        ax_gap.plot(x, gap_means, color=color, label=f"cell {cell}")
-        ax_prop.plot(x, prop_means, color=color, linestyle="-", label=f"min_prop c{cell}")
-        ax_prop.plot(x, ess_means, color=color, linestyle="--", label=f"ess c{cell}")
+        tv_means = np.array([float(np.mean(data[status][b]["delta_tv"])) for b in bs_vals])
+        ci_lo_m = np.array([float(np.mean(data[status][b]["ci_lo"])) for b in bs_vals])
+        ci_hi_m = np.array([float(np.mean(data[status][b]["ci_hi"])) for b in bs_vals])
+        gap_means = np.array([float(np.mean(data[status][b]["gap"])) for b in bs_vals])
+        prop_means = np.array(
+            [max(1e-6, float(np.mean(data[status][b]["min_propensity"]))) for b in bs_vals]
+        )
+        ess_means = np.array(
+            [max(1e-6, float(np.mean(data[status][b]["ess_ratio"]))) for b in bs_vals]
+        )
+
+        ax_tv.plot(x, tv_means, color=color, marker="o", label=status)
+        ax_tv.fill_between(x, ci_lo_m, ci_hi_m, color=color, alpha=0.15)
+
+        ax_ess.plot(x, ess_means, color=color, marker="o", label=status)
+        ax_prop.plot(x, prop_means, color=color, marker="o", label=status)
+        ax_gap.plot(x, gap_means, color=color, marker="o", label=status)
 
     ax_tv.set_xlabel("bias_strength")
-    ax_tv.set_ylabel("Δ_TV")
-    ax_tv.set_title("Gap metric vs bias strength")
-    ax_tv.legend(fontsize=7)
+    ax_tv.set_ylabel(r"$\widehat{\Delta}_{\mathrm{TV}}$")
+    ax_tv.set_title(r"$\widehat{\Delta}_{\mathrm{TV}}$ rises with bias_strength")
+
+    ax_ess.set_xlabel("bias_strength")
+    ax_ess.set_ylabel("ESS / N")
+    ax_ess.set_yscale("log")
+    ax_ess.set_title("ESS falls with bias_strength")
 
     ax_prop.set_xlabel("bias_strength")
-    ax_prop.set_ylabel("propensity metric")
-    ax_prop.set_title("Coverage vs bias strength")
-    ax_prop.legend(fontsize=6)
+    ax_prop.set_ylabel("min propensity")
+    ax_prop.set_yscale("log")
+    ax_prop.set_title("min propensity falls with bias_strength")
 
     ax_gap.set_xlabel("bias_strength")
     ax_gap.set_ylabel("Return gap to oracle")
-    ax_gap.set_title("Final return gap vs bias strength")
-    ax_gap.legend(fontsize=7)
+    ax_gap.set_title("Return gap rises with bias_strength")
 
-    fig.suptitle("Bias / coverage sweep", fontsize=11)
-    fig.tight_layout()
-    pdf = output_dir / "bias_sweep.pdf"
-    fig.savefig(pdf, bbox_inches="tight")
+    handles, labels = ax_tv.get_legend_handles_labels()
+    if handles:
+        fig.legend(
+            handles,
+            labels,
+            title="id_status",
+            loc="lower center",
+            ncol=len(handles),
+            bbox_to_anchor=(0.5, -0.05),
+            frameon=False,
+            fontsize=9,
+        )
+    fig.suptitle("Bias / coverage sweep, stratified by identifiability status", fontsize=11)
+    fig.tight_layout(rect=(0, 0.05, 1, 0.96))
+    fig.savefig(output_dir / "bias_sweep.pdf", bbox_inches="tight")
     plt.close(fig)

@@ -119,6 +119,7 @@ def _build_cmd(
     alpha_conf: float,
     bias_strength: float,
     horizon_override: int | None,
+    offline_transitions_override: int | None,
     matrix: MatrixConfig,
     run_dir: Path,
     device: str | None,
@@ -160,7 +161,15 @@ def _build_cmd(
         "--horizon",
         str(horizon),
         "--offline-transitions",
-        str(100 if quick else matrix.offline_transitions),
+        str(
+            100
+            if quick
+            else (
+                int(offline_transitions_override)
+                if offline_transitions_override is not None
+                else matrix.offline_transitions
+            )
+        ),
         "--offline-updates",
         str(50 if quick else matrix.offline_updates),
         "--alpha-conf",
@@ -269,6 +278,11 @@ def main() -> None:
         if matrix.bias_strengths
         else [1.0]
     )
+    offline_trans_values: list[int | None] = (
+        [int(t) for t in matrix.offline_transitions_sweep]
+        if matrix.offline_transitions_sweep
+        else [None]
+    )
 
     # Build all tasks.
     tasks: list[RunTask] = []
@@ -276,53 +290,63 @@ def main() -> None:
         for alpha_conf in alpha_values:
             for horizon_override in horizon_values:
                 for bias_strength in bias_values:
-                    for cell, env, algo, beh in runs:
-                        alpha_tag = f"_alpha{alpha_conf}" if len(alpha_values) > 1 else ""
-                        horizon_tag = (
-                            f"_h{horizon_override}" if horizon_override is not None else ""
-                        )
-                        bias_tag = (
-                            f"_bias{bias_strength}" if len(bias_values) > 1 else ""
-                        )
-                        run_dir = base_results / (
-                            f"cell{cell}_{env}_{algo}_{beh}_seed{seed}"
-                            f"{alpha_tag}{horizon_tag}{bias_tag}"
-                        )
-                        device = devices[len(tasks) % len(devices)] if devices else args.device
-                        cmd = _build_cmd(
-                            cell=cell,
-                            env=env,
-                            algo=algo,
-                            beh=beh,
-                            seed=seed,
-                            alpha_conf=alpha_conf,
-                            bias_strength=bias_strength,
-                            horizon_override=horizon_override,
-                            matrix=matrix,
-                            run_dir=run_dir,
-                            device=device,
-                            quick=args.quick,
-                        )
-                        row: dict[str, object] = {
-                            "seed": seed,
-                            "alpha_conf": alpha_conf,
-                            "bias_strength": bias_strength,
-                            "horizon": (
-                                horizon_override
-                                if horizon_override is not None
-                                else matrix.env_horizons.get(env, "")
-                            ),
-                            "cell": cell,
-                            "env": env,
-                            "algorithm": algo,
-                            "behaviour": beh,
-                            "output_path": str(run_dir),
-                        }
-                        tasks.append((cmd, row))
+                    for offline_t in offline_trans_values:
+                        for cell, env, algo, beh in runs:
+                            alpha_tag = f"_alpha{alpha_conf}" if len(alpha_values) > 1 else ""
+                            horizon_tag = (
+                                f"_h{horizon_override}" if horizon_override is not None else ""
+                            )
+                            bias_tag = (
+                                f"_bias{bias_strength}" if len(bias_values) > 1 else ""
+                            )
+                            offline_tag = (
+                                f"_n{offline_t}" if offline_t is not None else ""
+                            )
+                            run_dir = base_results / (
+                                f"cell{cell}_{env}_{algo}_{beh}_seed{seed}"
+                                f"{alpha_tag}{horizon_tag}{bias_tag}{offline_tag}"
+                            )
+                            device = devices[len(tasks) % len(devices)] if devices else args.device
+                            cmd = _build_cmd(
+                                cell=cell,
+                                env=env,
+                                algo=algo,
+                                beh=beh,
+                                seed=seed,
+                                alpha_conf=alpha_conf,
+                                bias_strength=bias_strength,
+                                horizon_override=horizon_override,
+                                offline_transitions_override=offline_t,
+                                matrix=matrix,
+                                run_dir=run_dir,
+                                device=device,
+                                quick=args.quick,
+                            )
+                            row: dict[str, object] = {
+                                "seed": seed,
+                                "alpha_conf": alpha_conf,
+                                "bias_strength": bias_strength,
+                                "horizon": (
+                                    horizon_override
+                                    if horizon_override is not None
+                                    else matrix.env_horizons.get(env, "")
+                                ),
+                                "offline_transitions": (
+                                    int(offline_t)
+                                    if offline_t is not None
+                                    else matrix.offline_transitions
+                                ),
+                                "cell": cell,
+                                "env": env,
+                                "algorithm": algo,
+                                "behaviour": beh,
+                                "output_path": str(run_dir),
+                            }
+                            tasks.append((cmd, row))
 
     manifest = base_results / "manifest.csv"
     manifest_fields = [
-        "seed", "alpha_conf", "bias_strength", "horizon",
+        "seed", "alpha_conf", "bias_strength", "horizon", "offline_transitions",
         "cell", "env", "algorithm", "behaviour", "output_path",
     ]
     failed: list[tuple[dict[str, object], int, str]] = []

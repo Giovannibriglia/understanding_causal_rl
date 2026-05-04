@@ -181,7 +181,8 @@ def test_regression_recovers_stratified_structure(tmp_path: Path) -> None:
     results_dir = tmp_path / "results"
     _write_synthetic_data(results_dir)
 
-    rows = _load_joined_data(results_dir)
+    rows, mode = _load_joined_data(results_dir)
+    assert mode == "generalisation", f"Expected generalisation mode, got {mode}"
     assert len(rows) >= 100, f"Expected >= 100 rows, got {len(rows)}"
 
     feature_cols = ["delta_tv", "bound_width_mean", "min_propensity", "ess_ratio", "D_env_KS"]

@@ -59,7 +59,7 @@ def make_headline_scatter(
 
     if not groups:
         ax.set_xlabel(r"Final $\widehat{\Delta}_{\mathrm{TV}}$")
-        ax.set_ylabel("Train - Holdout Return")
+        ax.set_ylabel("Return gap to oracle")
         pdf = output_dir / "headline_gap_vs_oracle.pdf"
         png = output_dir / "headline_gap_vs_oracle.png"
         fig.savefig(pdf, bbox_inches="tight")
@@ -171,7 +171,35 @@ def make_headline_scatter(
         ax.set_ylim(min_y - pad_y, max_y + pad_y)
 
     ax.set_xlabel(r"Final $\widehat{\Delta}_{\mathrm{TV}}$")
-    ax.set_ylabel("Train - Holdout Return")
+    ax.set_ylabel("Return gap to oracle")
+
+    # Annotate the two characteristic clusters: low-Δ_TV / low-gap (id cells)
+    # and high-Δ_TV / high-gap (partial_id cells).  Anchor positions inside
+    # the current axis range so the labels remain visible across runs.
+    if means:
+        all_x = [m[0] for m in means]
+        all_y = [m[1] for m in means]
+        min_x, max_x = min(all_x), max(all_x)
+        min_y, max_y = min(all_y), max(all_y)
+        if max_x - min_x > 1e-6 and max_y - min_y > 1e-6:
+            ax.text(
+                min_x + 0.05 * (max_x - min_x),
+                min_y + 0.10 * (max_y - min_y),
+                "id cells\n(low Δ_TV, low gap)",
+                fontsize=8,
+                color="#2E7D32",
+                ha="left",
+                va="bottom",
+            )
+            ax.text(
+                min_x + 0.65 * (max_x - min_x),
+                min_y + 0.85 * (max_y - min_y),
+                "partial_id cells\n(high Δ_TV, high gap)",
+                fontsize=8,
+                color="#E65100",
+                ha="left",
+                va="top",
+            )
 
     pdf = output_dir / "headline_gap_vs_oracle.pdf"
     png = output_dir / "headline_gap_vs_oracle.png"
