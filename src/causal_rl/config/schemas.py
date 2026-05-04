@@ -70,6 +70,7 @@ class MatrixConfig(BaseModel):
     alpha_conf: float = 0.0
     alpha_conf_sweep: list[float] | None = None
     bias_strengths: list[float] | None = None
+    offline_transitions_sweep: list[int] | None = None
     n_envs: int = 64
     eval_n_envs: int | None = None
     n_eval_episodes: int = 5

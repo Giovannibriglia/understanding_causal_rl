@@ -39,9 +39,14 @@ _FEATURE_COLS = [
     "overlap_at_1e-2",
     "tail_mass_top10pct",
     "propensity_calibration_ece",
+    "pi_b_recovery_kl",
+    "backdoor_residual_mean",
+    "target_support_overlap",
+    "cond_mi_r_z_given_sa",
     "bias_strength",
     "id_status_ordinal",
     "D_env_KS",
+    "D_bisim",
     "alpha_conf",
     "expose_z",
     "pi_b_known",
@@ -165,6 +170,13 @@ def _collect_runs(results_dir: Path) -> list[dict[str, Any]]:
                 "bound_width_mean": _sf(last_eval.get("bound_width_mean")),
                 "min_propensity": _sf(last_eval.get("min_propensity")),
                 "ess_ratio": _sf(last_eval.get("ess_ratio")),
+                "propensity_calibration_ece": _sf(
+                    last_eval.get("propensity_calibration_ece")
+                ),
+                "pi_b_recovery_kl": _sf(last_eval.get("pi_b_recovery_kl")),
+                "backdoor_residual_mean": _sf(last_eval.get("backdoor_residual_mean")),
+                "target_support_overlap": _sf(last_eval.get("target_support_overlap")),
+                "cond_mi_r_z_given_sa": _sf(last_eval.get("cond_mi_r_z_given_sa")),
             }
         )
     return runs
@@ -187,6 +199,19 @@ def _group_summary(group: list[dict[str, Any]]) -> dict[str, Any]:
         "bound_width_mean": _mean([r["bound_width_mean"] for r in group]),
         "min_propensity_mean": _mean([r["min_propensity"] for r in group]),
         "ess_ratio_mean": _mean([r["ess_ratio"] for r in group]),
+        "propensity_calibration_ece_mean": _mean(
+            [r.get("propensity_calibration_ece") for r in group]
+        ),
+        "pi_b_recovery_kl_mean": _mean([r.get("pi_b_recovery_kl") for r in group]),
+        "backdoor_residual_mean": _mean(
+            [r.get("backdoor_residual_mean") for r in group]
+        ),
+        "target_support_overlap_mean": _mean(
+            [r.get("target_support_overlap") for r in group]
+        ),
+        "cond_mi_r_z_given_sa_mean": _mean(
+            [r.get("cond_mi_r_z_given_sa") for r in group]
+        ),
     }
 
 

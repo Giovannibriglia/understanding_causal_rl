@@ -59,6 +59,62 @@ def support_overlap(log_probs: Tensor, tau: float = 1e-2) -> Tensor:
     return (probs > tau).float().sum() / n
 
 
+def target_support_overlap(
+    target_actions: Tensor,
+    behaviour_log_probs_per_action: Tensor,
+    tau: float = 1e-2,
+) -> Tensor:
+    """Fraction of (s, a) the target policy visits where ``π_b(a|s) > τ``.
+
+    Complements :func:`support_overlap` (which scores the *behaviour* policy's
+    coverage of its own sampling region) with a check on the *deployment*
+    region: do the actions the trained policy would take fall inside the
+    support that ``π_b`` actually probed?  Off-policy estimation is unreliable
+    when this quantity is small (Crump et al. 2009; Hernán & Robins 2020).
+
+    Args:
+        target_actions: ``(N,)`` integer actions the target policy would take.
+        behaviour_log_probs_per_action: ``(N, n_actions)`` log-probs of the
+            behaviour policy — one row per state, one column per action.
+        tau: Probability floor below which an action is considered unsupported.
+
+    Returns:
+        Scalar tensor in ``[0, 1]``.
+    """
+    if target_actions.numel() == 0:
+        return torch.tensor(0.0, device=behaviour_log_probs_per_action.device)
+    acts = target_actions.view(-1, 1).long()
+    log_p_taken = behaviour_log_probs_per_action.gather(1, acts).squeeze(-1)
+    p_taken = log_p_taken.exp()
+    return (p_taken > tau).float().mean()
+
+
+def pi_b_recovery_kl(
+    log_probs_predicted: Tensor,
+    log_probs_true: Tensor | None,
+) -> Tensor:
+    """``KL(π_b_true ‖ π_b_predicted)`` averaged over the batch.
+
+    A small but non-zero value confirms that the propensity model is fitting
+    the true behaviour rather than memorising actions; a large value flags
+    underfit / mode collapse.
+
+    Args:
+        log_probs_predicted: ``(N, n_actions)`` log-probs from the fitted
+            propensity model.
+        log_probs_true: ``(N, n_actions)`` log-probs of the *true* behaviour
+            policy.  ``None`` returns ``NaN`` (signals "π_b unknown").
+
+    Returns:
+        Scalar tensor in ``[0, ∞)`` or ``NaN``.
+    """
+    if log_probs_true is None:
+        return torch.tensor(float("nan"), device=log_probs_predicted.device)
+    p_true = log_probs_true.exp()
+    kl = (p_true * (log_probs_true - log_probs_predicted)).sum(dim=-1)
+    return kl.mean()
+
+
 def tail_mass_top_q(log_probs: Tensor, q: float = 0.1) -> Tensor:
     """Total probability mass in the top-q fraction of arms by propensity.
 

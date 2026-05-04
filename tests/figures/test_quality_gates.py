@@ -205,7 +205,7 @@ def test_stratified_r2_bounds(tmp_path: Path) -> None:
         _make_run(results_dir, idx, "non_id", slope=0.0, noise=1.0)
         idx += 1
 
-    rows = _load_joined_data(results_dir)
+    rows, _ = _load_joined_data(results_dir)
     assert len(rows) >= 100
 
     feature_cols = ["delta_tv", "bound_width_mean", "D_env_KS"]

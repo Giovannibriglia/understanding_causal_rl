@@ -14,7 +14,16 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
     rows: list[dict[str, str]] = []
     for path in results_dir.rglob("eval.csv"):
         with path.open("r", encoding="utf-8") as f:
-            rows.extend(list(csv.DictReader(f)))
+            csv_rows = list(csv.DictReader(f))
+        # Per-run guard: a single eval.csv file should never contain rows
+        # from more than one cell.  Mismatches indicate a logger bleed,
+        # which produced mislabelled cell_grid panels in v6/v7.
+        cell_ids = {str(r.get("cell")) for r in csv_rows if r.get("cell") is not None}
+        assert len(cell_ids) <= 1, (
+            f"eval.csv at {path} contains rows from cells {cell_ids}; "
+            "every checkpoint row must record the run's cell."
+        )
+        rows.extend(csv_rows)
     if env_prefix is not None:
         rows = [r for r in rows if str(r.get("env_name", "")).startswith(env_prefix)]
     fig, axes = plt.subplots(1, 4, figsize=(12.0, 3.5), sharex=True, sharey=True)
@@ -35,6 +44,16 @@ def make_cell_grid(results_dir: Path, output_dir: Path, env_prefix: str | None =
     for cell in range(1, 5):
         ax = axes[(cell - 1)]
         cell_rows = [r for r in rows if r.get("cell") == str(cell)]
+        # Guard: every row in this panel must have cell == this panel's cell.
+        # Mismatches indicate a bleed bug upstream (e.g. a logger writing the
+        # wrong cell on intermediate checkpoints).  Crashing here is the right
+        # behaviour because a silently-mislabelled panel has been the source
+        # of confused paper figures in the past.
+        observed_cells = {str(r.get("cell")) for r in cell_rows}
+        assert observed_cells <= {str(cell)}, (
+            f"cell_grid panel for cell {cell} contains rows from {observed_cells}; "
+            "check that runner._log_eval emits the run's cell on every row."
+        )
         # group rows by (algo,beh); pick the row with the largest step as representative
         combo_map: dict[tuple[str, str], dict[str, str]] = {}
         for r in cell_rows:

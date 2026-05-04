@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+# Per-arm bound columns.  Eight arms is hard-coded in the runner's discrete
+# action setup (see runner.py:n_actions=8).  Per-arm bounds and counts are
+# emitted at every checkpoint so figures like ``bound_width_panel`` can
+# scatter individual arms instead of a degenerate per-run mean.
+_BOUND_COLUMNS_PER_ARM = (
+    [f"bound_lower_a{a}" for a in range(8)]
+    + [f"bound_upper_a{a}" for a in range(8)]
+    + [f"obs_arm_count_a{a}" for a in range(8)]
+)
+
 TRAIN_COLUMNS = [
     "step",
     "episode",
@@ -33,9 +43,15 @@ TRAIN_COLUMNS = [
     "overlap_at_1e-2",
     "tail_mass_top10pct",
     "propensity_calibration_ece",
+    "pi_b_recovery_kl",
     "bound_width_mean",
     "bound_width_max",
     "n_arms_with_informative_bound",
+    *_BOUND_COLUMNS_PER_ARM,
+    "backdoor_residual_mean",
+    "backdoor_residual_max",
+    "target_support_overlap",
+    "cond_mi_r_z_given_sa",
     "alpha_conf",
     "bias_strength",
     "expose_z",
@@ -71,9 +87,15 @@ EVAL_COLUMNS = [
     "overlap_at_1e-2",
     "tail_mass_top10pct",
     "propensity_calibration_ece",
+    "pi_b_recovery_kl",
     "bound_width_mean",
     "bound_width_max",
     "n_arms_with_informative_bound",
+    *_BOUND_COLUMNS_PER_ARM,
+    "backdoor_residual_mean",
+    "backdoor_residual_max",
+    "target_support_overlap",
+    "cond_mi_r_z_given_sa",
     "alpha_conf",
     "bias_strength",
     "expose_z",
@@ -100,6 +122,7 @@ PERTURBED_COLUMNS = [
     "eval_perturbed_return_mean",
     "eval_perturbed_return_std",
     "D_env_KS",
+    "D_bisim",
 ]
 
 EVAL_PERTURBED_COLUMNS = [
@@ -115,4 +138,5 @@ EVAL_PERTURBED_COLUMNS = [
     "eval_perturbed_return_mean",
     "eval_perturbed_return_std",
     "D_env_KS",
+    "D_bisim",
 ]

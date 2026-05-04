@@ -27,7 +27,6 @@ def _write_csv(path: Path, columns: list[str], rows: list[dict[str, object]]) ->
 def test_plotting_smoke(tmp_path: Path) -> None:
     results = tmp_path / "results"
     out = tmp_path / "figs"
-    run_dir = results / "run0"
     train_cols = [
         "step",
         "cell",
@@ -57,9 +56,13 @@ def test_plotting_smoke(tmp_path: Path) -> None:
         "delta_sup",
         "id_status",
     ]
-    train_rows: list[dict[str, object]] = []
-    eval_rows: list[dict[str, object]] = []
+    # One run dir per cell — matches the production layout (each
+    # ``cellX_..._seedY`` directory has a single eval.csv whose rows all
+    # share the same ``cell`` value).
     for cell in range(1, 9):
+        run_dir = results / f"run_cell{cell}"
+        train_rows: list[dict[str, object]] = []
+        eval_rows: list[dict[str, object]] = []
         for step in [10, 20, 30]:
             train_rows.append(
                 {
@@ -95,8 +98,8 @@ def test_plotting_smoke(tmp_path: Path) -> None:
                     "id_status": id_status,
                 }
             )
-    _write_csv(run_dir / "train.csv", train_cols, train_rows)
-    _write_csv(run_dir / "eval.csv", eval_cols, eval_rows)
+        _write_csv(run_dir / "train.csv", train_cols, train_rows)
+        _write_csv(run_dir / "eval.csv", eval_cols, eval_rows)
 
     make_learning_curves(results, out)
     make_gap_curves(results, out)
@@ -109,7 +112,7 @@ def test_plotting_smoke(tmp_path: Path) -> None:
     make_bias_sweep(results, out)
     make_sample_sweep(results, out)
     assert (out / "headline_gap_vs_oracle.pdf").exists()
-    assert (out / "cell_grid_8x4.pdf").exists()
+    assert (out / "cell_grid_1x4.pdf").exists()
     assert (out / "summary_results.tex").exists()
     assert (out / "identifiability_panel.pdf").exists()
 
