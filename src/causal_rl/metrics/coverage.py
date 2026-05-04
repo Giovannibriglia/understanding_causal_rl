@@ -115,6 +115,83 @@ def pi_b_recovery_kl(
     return kl.mean()
 
 
+# ---------------------------------------------------------------------------
+# Histogram-based coverage diagnostics (v12)
+#
+# The log-prob-based metrics above are *per-row* — each transition contributes
+# a single ``log_prob(a | s)`` value, and aggregate statistics like
+# ``min_propensity`` / ``ess_ratio`` summarise the resulting empirical
+# distribution over those values.  When the offline collector forbids a
+# subset of actions and *resamples uniformly over the allowed subset*, every
+# row gets the same ``log_prob = -log(|allowed|)`` — so the per-row diagnostics
+# read off a perfectly uniform distribution and report the buffer as
+# *more coverage-healthy* than an unmasked baseline.  This is arithmetically
+# correct given the inputs but factually wrong about the buffer's coverage.
+#
+# These two functions read the empirical action histogram directly, which is
+# what the masking actually distorts.  They complement, not replace, the
+# log-prob diagnostics.
+# ---------------------------------------------------------------------------
+
+
+def min_action_freq(actions: Tensor, n_actions: int) -> Tensor:
+    """Smallest empirical action frequency in the buffer.
+
+    Returns ``min_a count(a) / N`` where ``count(a)`` is the number of
+    times action ``a`` appears in ``actions``.  When some actions never
+    appear, returns ``0.0`` — a signal the per-row log-prob diagnostics
+    cannot give because they only see the actions that were taken.
+
+    Args:
+        actions: ``(N,)`` integer action indices.
+        n_actions: Total action-space size; unobserved actions count as
+            zero, not as missing.
+
+    Returns:
+        Scalar tensor in ``[0, 1/n_actions]``.
+    """
+    flat = actions.view(-1).to(torch.long)
+    n = float(flat.numel())
+    if n <= 0:
+        return torch.tensor(float("nan"), device=actions.device)
+    counts = torch.bincount(flat, minlength=n_actions).to(torch.float)
+    return counts.min() / n
+
+
+def ess_histogram(actions: Tensor, n_actions: int) -> Tensor:
+    """ESS of the empirical action histogram against the uniform prior.
+
+    Treats the empirical action distribution as the *target* and uniform
+    over ``n_actions`` as the *proposal*; computes the standard ESS/N
+    ratio of the resulting importance weights.  Reduces to
+    ``1 / (n_actions · sum_a p_emp(a)²)``.
+
+    * Perfectly uniform play ⇒ ``1.0``.
+    * Single point mass ⇒ ``1 / n_actions``.
+    * 4 of 8 arms unobserved ⇒ ``≤ 0.5`` (mass redistributed).
+
+    Args:
+        actions: ``(N,)`` integer action indices.
+        n_actions: Total action-space size.
+
+    Returns:
+        Scalar tensor in ``[1/n_actions, 1.0]``.
+    """
+    flat = actions.view(-1).to(torch.long)
+    n = float(flat.numel())
+    if n <= 0:
+        return torch.tensor(float("nan"), device=actions.device)
+    counts = torch.bincount(flat, minlength=n_actions).to(torch.float)
+    p_emp = counts / n
+    sum_p_sq = (p_emp * p_emp).sum()
+    n_a = torch.tensor(float(n_actions), device=actions.device)
+    # Numerator clamp: avoid divide-by-zero in the degenerate empty-buffer
+    # path (already handled above; the clamp is belt-and-braces).
+    raw = 1.0 / (n_a * sum_p_sq).clamp(min=1e-12)
+    # Cap at 1.0 (perfectly uniform) and floor at 1/n_actions (point mass).
+    return raw.clamp(min=1.0 / n_a, max=1.0)
+
+
 def tail_mass_top_q(log_probs: Tensor, q: float = 0.1) -> Tensor:
     """Total probability mass in the top-q fraction of arms by propensity.
 
