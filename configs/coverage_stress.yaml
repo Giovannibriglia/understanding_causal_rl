@@ -1,0 +1,65 @@
+# Coverage-stress sweep: deliberately break offline data coverage to expose the
+# recoverability axis as a distinct failure regime from graphical
+# identifiability and partial observability.
+#
+# Goal: produce ESS < 0.5 and min_propensity < 0.01 in some configurations,
+# so the regime_map figure has populated data points in the
+# "coverage-broken" quadrant.
+#
+# total_runs:
+#   4 cells × 1 env × 2 algos × 2 behaviours × 3 seeds × 2 alpha × 5 regimes = 480
+# wall_time_estimate (n_workers=4): ~1.7 h
+#   (perturbations off, ~51 s/run; matches scripts/estimate_run_time.py)
+cells: [1, 2, 3, 4]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - dqn
+  - cql
+behaviours:
+  - reward_aligned
+  - uniform
+seeds: [0, 1, 2]
+total_frames: 2000
+n_checkpoints_train: 5
+n_checkpoints_eval: 5
+env_horizons:
+  tabular-sepsis-v0: 20
+
+# Default offline transitions (overridden per-regime below).
+offline_transitions: 4000
+offline_updates: 400
+
+# Sweep axis: each entry produces a separate run with its
+# (offline_transitions, forbidden_actions, bias_strength) tuple.  Treated
+# analogously to alpha_conf_sweep / bias_strengths but combining all three
+# coverage knobs into a single named regime.
+coverage_regimes:
+  - name: full
+    offline_transitions: 8000
+    forbidden_actions: []
+    bias_strength: 1.0
+  - name: small
+    offline_transitions: 500
+    forbidden_actions: []
+    bias_strength: 1.0
+  - name: biased
+    offline_transitions: 4000
+    forbidden_actions: []
+    bias_strength: 1.0
+  - name: masked_2
+    offline_transitions: 4000
+    forbidden_actions: [0, 1]
+    bias_strength: 1.0
+  - name: masked_4
+    offline_transitions: 4000
+    forbidden_actions: [0, 1, 2, 3]
+    bias_strength: 1.0
+
+alpha_conf_sweep: [0.0, 2.0]
+n_envs: 16
+
+# Coverage diagnostics don't need perturbations; turn them off to halve
+# wall-clock time.
+eval_perturbations: false
+perturbation_grid_size: 0
