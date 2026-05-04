@@ -87,6 +87,7 @@ def make_regime_map(
         eval_ret = _safe_float(last.get("eval_return_mean"))
         oracle_ret = _safe_float(last.get("eval_oracle_return_mean"))
         ess = _safe_float(last.get("ess_ratio"))
+        cov_ess = _safe_float(last.get("coverage_ess_histogram"))
         if not (np.isfinite(delta_tv) and np.isfinite(eval_ret) and np.isfinite(oracle_ret)):
             continue
         gap = oracle_ret - eval_ret
@@ -95,6 +96,7 @@ def make_regime_map(
                 "delta_tv": delta_tv,
                 "gap": gap,
                 "ess": ess,
+                "coverage_ess_histogram": cov_ess,
                 "id_status": str(last.get("id_status", "non_id")),
                 "behaviour": str(last.get("behaviour_policy", "uniform")),
             }
@@ -104,9 +106,28 @@ def make_regime_map(
         return
 
     # Quadrant thresholds.  x: median Δ_TV across id-cell runs.  y: median
-    # gap across coverage-healthy (ESS > 0.9) runs.
+    # gap across coverage-healthy runs.
+    #
+    # v12: prefer ``coverage_ess_histogram > 0.9`` for the y-threshold
+    # because ``ess_ratio`` is mis-leading on action-masked runs (PR 17's
+    # mask resamples uniformly over the allowed subset, which makes the
+    # log-prob diagnostic report a *more uniform* distribution than the
+    # unmasked baseline).  Fall back to ``ess_ratio`` for older runs that
+    # don't have the histogram column.
     id_dtv = [p["delta_tv"] for p in points if p["id_status"] == "id"]
-    healthy_gaps = [p["gap"] for p in points if isinstance(p["ess"], float) and p["ess"] > 0.9]
+    healthy_gaps = [
+        p["gap"]
+        for p in points
+        if isinstance(p.get("coverage_ess_histogram"), float)
+        and np.isfinite(p["coverage_ess_histogram"])
+        and p["coverage_ess_histogram"] > 0.9
+    ]
+    if not healthy_gaps:
+        healthy_gaps = [
+            p["gap"]
+            for p in points
+            if isinstance(p["ess"], float) and p["ess"] > 0.9
+        ]
     x_thresh = float(np.median(id_dtv)) if id_dtv else 0.04
     y_thresh = float(np.median(healthy_gaps)) if healthy_gaps else 5.0
 
@@ -246,7 +267,8 @@ def regime_quadrant_counts(
     counts: dict[str, int] = defaultdict(int)
     points: list[tuple[float, float]] = []
     id_dtv: list[float] = []
-    healthy_gaps: list[float] = []
+    healthy_gaps_hist: list[float] = []
+    healthy_gaps_logprob: list[float] = []
     for path in results_dir.rglob("eval.csv"):
         last = _read_last_row(path)
         if last is None:
@@ -259,16 +281,22 @@ def regime_quadrant_counts(
         eval_ret = _safe_float(last.get("eval_return_mean"))
         oracle_ret = _safe_float(last.get("eval_oracle_return_mean"))
         ess = _safe_float(last.get("ess_ratio"))
+        cov_ess = _safe_float(last.get("coverage_ess_histogram"))
         if not (np.isfinite(delta_tv) and np.isfinite(eval_ret) and np.isfinite(oracle_ret)):
             continue
         gap = oracle_ret - eval_ret
         points.append((delta_tv, gap))
         if str(last.get("id_status", "")) == "id":
             id_dtv.append(delta_tv)
+        if np.isfinite(cov_ess) and cov_ess > 0.9:
+            healthy_gaps_hist.append(gap)
         if np.isfinite(ess) and ess > 0.9:
-            healthy_gaps.append(gap)
+            healthy_gaps_logprob.append(gap)
     if not points:
         return dict(counts)
+    # v12: prefer histogram-based coverage; fall back to log-prob-based for
+    # older runs.
+    healthy_gaps = healthy_gaps_hist or healthy_gaps_logprob
     x_thresh = float(np.median(id_dtv)) if id_dtv else 0.04
     y_thresh = float(np.median(healthy_gaps)) if healthy_gaps else 5.0
     for delta_tv, gap in points:

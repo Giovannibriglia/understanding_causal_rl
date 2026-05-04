@@ -155,5 +155,9 @@ class BanditView(CausalEnv):
         rewards_01 = ((rews_t + 1.0) / 2.0).clamp(0.0, 1.0)
         return acts_t, rewards_01
 
+    @property
+    def n_actions(self) -> int:
+        return self._env.n_actions
+
     def close(self) -> None:
         self._env.close()
