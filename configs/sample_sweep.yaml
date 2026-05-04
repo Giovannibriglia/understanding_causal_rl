@@ -2,6 +2,8 @@
 # identifiability floor as a function of offline data quantity.
 # Combined with alpha_conf_sweep [0.0, 2.0] to expose the interaction
 # between dataset size and confounding.
+# total_runs: 4 cells × 1 env × 2 algos × 2 behaviours × 3 seeds × 4 sizes × 2 alpha = 384
+# wall_time_estimate (n_workers=4): ~80 min
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0

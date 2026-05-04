@@ -1,6 +1,7 @@
 # Paper-companion smoke: minimal config that populates ALL THREE id_status strata
 # by including alpha_conf > 0 with U-dependent behaviour.
-# Wall time ~4 min on 4 workers (CPU).
+# total_runs: 4 cells × 1 env × 4 algos × 2 behaviours × 4 seeds × 2 alpha = 256
+# wall_time_estimate (n_workers=4): ~60 min  (eval_perturbations on)
 #
 # Purpose: verify stratified R² pattern and non_id stratum BEFORE committing
 # to the full 12-hour paper run.  Run as:

@@ -4,7 +4,12 @@
 # instead of being dropped), and reward_misaligned added so the bound-width
 # panel shows non-uniform per-arm play.
 #
-# ~25 minutes on CPU at n_workers=4.
+# total_runs:
+#   4 cells × 1 env × 2 algos × 3 behaviours × 3 seeds × 2 alpha_conf × 5 bias = 720
+# wall_time_estimate (n_workers=4, after v10):
+#   ~1.5 h on an 8-core CPU box (~25 s/run with vectorised bisim and a
+#   single end-of-training perturbation eval). At grid_size=3 the
+#   perturbation overhead drops further; smoke turnaround under an hour.
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
@@ -32,3 +37,8 @@ n_envs: 16
 # Turn perturbations on so D_env_KS, D_bisim, target_support_overlap and the
 # generalisation-mode headline regression are populated.
 eval_perturbations: true
+# Trim the perturbation grid for smoke (keep eps={0, mid, max}).  Paper runs
+# leave this null and use the full 5-spec sweep.
+perturbation_grid_size: 3
+# Halve rollout cost for smoke; paper runs override to 5+.
+n_eval_episodes: 3

@@ -1,4 +1,6 @@
 # Minimal smoke test: completes in <2 min on CPU. Catches import/shape errors.
+# total_runs: 4
+# wall_time_estimate (n_workers=4): ~1 min
 cells: [1, 2]
 envs:
   - tabular-sepsis-v0

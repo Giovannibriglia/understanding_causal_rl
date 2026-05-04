@@ -81,31 +81,40 @@ def bisimulation_distance(
     Returns:
         ``(S, S)`` symmetric tensor; entry ``(s, s')`` is the bisim
         distance between state ``s`` in ``M`` and state ``s'`` in ``M'``.
+
+    Implementation note (v10): the recurrence factors over the (S, S, A)
+    cube; we use that to replace a triple-nested Python loop with a
+    single batched tensor expression per fixed-point step.  The
+    Wasserstein surrogate is ``0.5 · ‖p − q‖₁ · mean(d)`` (matching the
+    earlier loop body); under that surrogate the ``W₁`` term reduces to
+    a per-(s, s', a) TV distance times a scalar, and the whole step is
+    one ``max(dim=-1)`` reduction.
     """
     if M_reward.shape != M_prime_reward.shape:
         raise ValueError("M and M' must have the same (S, A) shape")
-    n_states, n_actions = M_reward.shape
-    device = M_reward.device
+    n_states, _n_actions = M_reward.shape
 
-    # Initialise with reward differences.
-    d = torch.zeros((n_states, n_states), device=device)
-    for s in range(n_states):
-        for sp in range(n_states):
-            d[s, sp] = float((M_reward[s] - M_prime_reward[sp]).abs().max().item())
+    # Vectorised initialisation: d[s, sp] = max_a |R(s, a) − R'(sp, a)|.
+    r_diff_init = (M_reward[:, None, :] - M_prime_reward[None, :, :]).abs()
+    d = r_diff_init.max(dim=-1).values
 
-    for _it in range(n_iters):
-        d_new = torch.zeros_like(d)
-        for s in range(n_states):
-            for sp in range(n_states):
-                per_action = torch.zeros(n_actions, device=device)
-                for a in range(n_actions):
-                    r_diff = float((M_reward[s, a] - M_prime_reward[sp, a]).abs().item())
-                    w = _wasserstein1_under_metric(
-                        M_transition[s, a], M_prime_transition[sp, a], d
-                    )
-                    per_action[a] = r_diff + gamma * w
-                d_new[s, sp] = per_action.max()
-        delta = (d_new - d).abs().max().item()
+    # |R(s, a) − R'(sp, a)| as (S, S, A) tensor — reused every iteration.
+    r_diff = (M_reward[:, None, :] - M_prime_reward[None, :, :]).abs()
+
+    # TV distance between transition rows: 0.5 · sum_{s''} |M(s, a, s'') − M'(sp, a, s'')|.
+    # Shape: (S, S, A).
+    tv_diff = (
+        0.5
+        * (M_transition[:, None, :, :] - M_prime_transition[None, :, :, :]).abs().sum(
+            dim=-1
+        )
+    )
+
+    for _ in range(n_iters):
+        d_mean = d.mean()
+        per_action = r_diff + gamma * tv_diff * d_mean
+        d_new = per_action.max(dim=-1).values
+        delta = float((d_new - d).abs().max().item())
         d = d_new
         if delta < tol:
             break

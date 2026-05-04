@@ -38,7 +38,16 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Bias strength multiplier for the behaviour policy (where applicable).",
     )
-    parser.add_argument("--n-eval-episodes", type=int, default=5)
+    parser.add_argument("--n-eval-episodes", type=int, default=3)
+    parser.add_argument(
+        "--perturbation-grid-size",
+        type=int,
+        default=None,
+        help=(
+            "Trim TABULAR_DIAGONAL to the first N specs (smoke knob)."
+            " Default None ⇒ full 5-spec grid."
+        ),
+    )
     parser.add_argument(
         "--eval-perturbations",
         action=argparse.BooleanOptionalAction,
@@ -78,6 +87,7 @@ def main() -> None:
         bias_strength=args.bias_strength,
         oracle=args.oracle,
         n_eval_episodes=args.n_eval_episodes,
+        perturbation_grid_size=args.perturbation_grid_size,
         eval_perturbations=args.eval_perturbations,
     )
     runner = BenchmarkRunner(cfg)

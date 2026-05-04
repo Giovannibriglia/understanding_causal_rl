@@ -2,7 +2,8 @@
 # Same cell × algo × behaviour grid as smoke, swept over multiple horizons.
 # total_frames is set per horizon via total_frames_per_episode * horizon, so
 # the number of episodes is roughly constant across horizons.
-# ~30 minutes on CPU at n_workers=4.
+# total_runs: 4 cells × 1 env × 3 algos × 2 behaviours × 3 seeds × 5 horizons = 360
+# wall_time_estimate (n_workers=4): ~75 min
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0

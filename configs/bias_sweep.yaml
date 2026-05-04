@@ -3,6 +3,8 @@
 # what the bias_sweep figure expects to see.  eval_perturbations off to halve
 # wall-clock time; for the generalisation-factorisation block of the headline
 # regression use ``smoke_v8`` instead.
+# total_runs: 4 cells × 1 env × 3 algos × 2 behaviours × 5 seeds × 5 alpha × 5 bias = 3000
+# wall_time_estimate (n_workers=4): ~10.5 h
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0

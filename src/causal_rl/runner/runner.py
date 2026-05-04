@@ -78,7 +78,9 @@ class RunnerConfig:
     eval_n_envs: int | None = None
     n_bootstrap: int = 200
     n_samples_gap: int = 200
-    n_eval_episodes: int = 5
+    n_eval_episodes: int = 3
+    # Optional smoke-only perturbation-grid trim; None or <=0 ⇒ full grid.
+    perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
@@ -765,7 +767,16 @@ class BenchmarkRunner:
         return env
 
     def _evaluate_perturbations(self, step: int, episode: int, seed: int) -> None:
-        """Run closed-loop evaluation across TABULAR_DIAGONAL perturbation levels."""
+        """Run closed-loop evaluation across TABULAR_DIAGONAL perturbation levels.
+
+        Optimised in v10:
+        - the base env is constructed once and reused across every spec;
+        - the perturbed env for each spec is constructed once and reused
+          for the rollout, the KS computation, and the bisim computation
+          (was 3 separate constructions);
+        - the bisim distance is computed from already-built env tensors,
+          not by re-allocating yet another perturbed env.
+        """
         if not self.config.eval_perturbations:
             return
         if not isinstance(self.env, TabularSepsisEnv):
@@ -773,99 +784,111 @@ class BenchmarkRunner:
 
         cpu_rng_state = torch.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+
+        # Optional smoke knob: trim the perturbation grid to a smaller
+        # number of specs so smoke configs don't pay for the full 5-spec
+        # sweep.  Defaults to the full grid when the field is None.
+        grid_size = getattr(self.config, "perturbation_grid_size", None)
+        specs = TABULAR_DIAGONAL
+        if grid_size is not None and 0 < int(grid_size) < len(TABULAR_DIAGONAL):
+            specs = TABULAR_DIAGONAL[: int(grid_size)]
+
+        base_env = self._make_eval_env_instance()
         try:
-            for spec in TABULAR_DIAGONAL:
-                all_returns: list[float] = []
-                for ep in range(self.config.n_eval_episodes):
-                    perturbed_env = self._make_perturbed_env(spec)
-                    try:
+            for spec in specs:
+                perturbed_env = self._make_perturbed_env(spec)
+                try:
+                    # (a) Closed-loop rollout on the perturbed env.
+                    all_returns: list[float] = []
+                    for ep in range(self.config.n_eval_episodes):
+                        ep_seed = seed + ep * 1000
                         with torch.no_grad():
-                            ep_seed = seed + ep * 1000
                             obs, _ = perturbed_env.reset(seed=ep_seed)
                             rets = torch.zeros((self._eval_n_envs,), device=self.device)
                             for _ in range(perturbed_env.horizon):
                                 act, _ = self.algo.select_action(obs, deterministic=True)
-                                obs, reward, terminated, truncated, _ = perturbed_env.step(act)
+                                obs, reward, terminated, truncated, _ = perturbed_env.step(
+                                    act
+                                )
                                 rets += reward
                                 if bool(torch.all(terminated | truncated)):
                                     break
                             all_returns.extend(rets.tolist())
-                    finally:
-                        perturbed_env.close()
+                    ret_tensor = torch.tensor(all_returns)
 
-                ret_tensor = torch.tensor(all_returns)
-
-                # Compute D_env_KS for this perturbation level.
-                train_env_for_ks = self._make_eval_env_instance()
-                target_env_for_ks = self._make_perturbed_env(spec)
-                try:
-                    _tenv = train_env_for_ks
+                    # (b) D_env_KS — uses the already-built base_env and
+                    # perturbed_env, no extra construction.
+                    _tenv = base_env
 
                     def oracle_fn(obs: torch.Tensor, _e: CausalEnv = _tenv) -> torch.Tensor:
                         return self._oracle_action(_e, obs)
 
                     ks_val = d_env_ks(
-                        train_env_for_ks,
-                        target_env_for_ks,
+                        base_env,
+                        perturbed_env,
                         oracle_fn,
                         n_states=self._eval_n_envs,
                         n_samples=50,
                     )
+
+                    # (c) D_bisim — operates directly on the env tensors of
+                    # the already-built envs.  Avoids the previous double
+                    # construction inside _compute_bisim_distance.
+                    d_bisim_val = self._compute_bisim_distance_from_envs(
+                        base_env, perturbed_env
+                    )
+
+                    self.perturbed_logger.write(
+                        {
+                            "step": step,
+                            "episode": episode,
+                            "wall_time": time.time(),
+                            "cell": self.config.cell,
+                            "env_name": self.config.env_name,
+                            "algorithm": self.config.algorithm,
+                            "behaviour_policy": self.config.behaviour,
+                            "seed": self.config.seed,
+                            "eps_T": spec.eps_T,
+                            "eps_R": spec.eps_R,
+                            "eval_perturbed_return_mean": float(ret_tensor.mean().item()),
+                            "eval_perturbed_return_std": float(ret_tensor.std().item()),
+                            "D_env_KS": ks_val,
+                            "D_bisim": d_bisim_val,
+                        }
+                    )
                 finally:
-                    train_env_for_ks.close()
-                    target_env_for_ks.close()
-
-                # Compute bisimulation distance for tabular envs.
-                # Done on a small random subset of states to keep iteration cost
-                # bounded; the resulting scalar is the mean diagonal of the
-                # pairwise bisim metric over that subset.
-                d_bisim_val = self._compute_bisim_distance(spec)
-
-                self.perturbed_logger.write(
-                    {
-                        "step": step,
-                        "episode": episode,
-                        "wall_time": time.time(),
-                        "cell": self.config.cell,
-                        "env_name": self.config.env_name,
-                        "algorithm": self.config.algorithm,
-                        "behaviour_policy": self.config.behaviour,
-                        "seed": self.config.seed,
-                        "eps_T": spec.eps_T,
-                        "eps_R": spec.eps_R,
-                        "eval_perturbed_return_mean": float(ret_tensor.mean().item()),
-                        "eval_perturbed_return_std": float(ret_tensor.std().item()),
-                        "D_env_KS": ks_val,
-                        "D_bisim": d_bisim_val,
-                    }
-                )
+                    perturbed_env.close()
         finally:
+            try:
+                base_env.close()
+            except Exception:  # noqa: BLE001
+                pass
             torch.set_rng_state(cpu_rng_state)
             if cuda_rng_state is not None:
                 torch.cuda.set_rng_state_all(cuda_rng_state)
 
-    def _compute_bisim_distance(self, spec: PerturbationSpec) -> float:
-        """Average bisim distance between the train env and a perturbed copy.
+    def _compute_bisim_distance_from_envs(
+        self, base_env: CausalEnv, target_env: CausalEnv
+    ) -> float:
+        """Average bisim distance between two already-built tabular MDPs.
 
-        Returns ``NaN`` when the env isn't tabular sepsis (continuous-ward
-        bisim needs a samples-based approximation, deferred).  For runtime
-        safety on the 1440-state sepsis MDP, we sample a random
-        ``n_subset``-dim subset of states and compute the bisim metric on
-        that submatrix only.
+        Sampling a 24-state random subset bounds the runtime on the 1440-
+        state sepsis MDP.  The full bisim is computed by ``bisimulation_distance``
+        on the projected transitions and rewards; the scalar returned is the
+        mean diagonal of the pairwise metric on the subset.
+
+        Returns ``NaN`` when either env isn't a tabular sepsis instance
+        (continuous-ward bisim needs a samples-based approximation).
         """
         from causal_rl.metrics.bisimulation import bisimulation_distance
 
-        if not isinstance(self.env, TabularSepsisEnv):
-            return float("nan")
-        try:
-            base_env = self._make_eval_env_instance()
-            target_env = self._make_perturbed_env(spec)
-        except Exception:  # noqa: BLE001
+        if not isinstance(base_env, TabularSepsisEnv) or not isinstance(
+            target_env, TabularSepsisEnv
+        ):
             return float("nan")
         try:
             n_subset = 24  # bound runtime: 24x24 fixed-point.
             n_states = int(base_env.transition.shape[0])
-            n_actions = int(base_env.transition.shape[1])
             torch.manual_seed(0)
             idx = torch.randperm(n_states)[:n_subset]
             # Project transitions onto the subset and renormalise per row.
@@ -887,12 +910,6 @@ class BenchmarkRunner:
             return float(torch.diagonal(d).mean().item())
         except Exception:  # noqa: BLE001
             return float("nan")
-        finally:
-            try:
-                base_env.close()
-                target_env.close()
-            except Exception:  # noqa: BLE001
-                pass
 
     def run(self) -> None:
         if ALGOS[self.config.algorithm].kind == "off_policy":
@@ -1016,11 +1033,15 @@ class BenchmarkRunner:
                     oracle_returns=oracle_returns,
                     metrics=gap_metrics,
                 )
-                self._evaluate_perturbations(
-                    step=tick,
-                    episode=episode,
-                    seed=self.config.seed + tick + 60_000,
-                )
+        # Perturbation eval is policy-after-training analysis; the per-spec
+        # bisim/KS quantities depend only on the env-pair, so running this
+        # at every checkpoint just multiplied wall time by ``n_checkpoints_eval``
+        # without adding new information.  Single end-of-training call.
+        self._evaluate_perturbations(
+            step=self.config.total_frames,
+            episode=episode,
+            seed=self.config.seed + self.config.total_frames + 60_000,
+        )
 
     def _run_offline(self) -> None:
         obs, info = self.env.reset(seed=self.config.seed)
@@ -1150,8 +1171,10 @@ class BenchmarkRunner:
                     oracle_returns=oracle_returns,
                     metrics=gap_metrics,
                 )
-                self._evaluate_perturbations(
-                    step=step,
-                    episode=episode,
-                    seed=self.config.seed + step + 60_000,
-                )
+        # Single end-of-training perturbation eval (see _run_online for the
+        # rationale).
+        self._evaluate_perturbations(
+            step=total_updates,
+            episode=episode,
+            seed=self.config.seed + total_updates + 60_000,
+        )

@@ -183,6 +183,12 @@ def _build_cmd(
         cmd.append("--no-eval-perturbations")
     if matrix.eval_n_envs is not None:
         cmd.extend(["--eval-n-envs", str(matrix.eval_n_envs)])
+    if getattr(matrix, "n_eval_episodes", None) is not None:
+        cmd.extend(["--n-eval-episodes", str(matrix.n_eval_episodes)])
+    if getattr(matrix, "perturbation_grid_size", None) is not None:
+        cmd.extend(
+            ["--perturbation-grid-size", str(matrix.perturbation_grid_size)]
+        )
     if device is not None:
         cmd.extend(["--device", device])
     return cmd
