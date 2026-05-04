@@ -1,3 +1,6 @@
+# Bandit family (UCB / UCB± / RCT) — single-step episodes.
+# total_runs: 4 cells × 1 env × 4 algos × 1 behaviour × 10 seeds × 4 alpha = 640
+# wall_time_estimate (n_workers=4): ~2.3 h  (eval_perturbations off)
 cells: [1, 2, 3, 4]
 envs:
   - bandit-tabular-sepsis-v0

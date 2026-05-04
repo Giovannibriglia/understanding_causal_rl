@@ -1,7 +1,8 @@
 # Smoke-test / CI config: minimal compute for pipeline sanity-checking.
 # Should complete in < 5 minutes on a CPU.  total_frames must be divisible by
-# the env horizon; 2000 / 20 = 100 episodes for tabular (sufficient for a
-# learning trend), 2500 / 50 = 50 episodes for continuous.
+# the env horizon; 1600 / 20 = 80 episodes for tabular.
+# total_runs: 4 cells × 1 env × 3 algos × 3 behaviours × 2 seeds = 72
+# wall_time_estimate (n_workers=4): ~17 min
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0

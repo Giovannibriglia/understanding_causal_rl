@@ -42,7 +42,13 @@ class RunConfigModel(BaseModel):
     batch_size: int = 64
     offline_transitions: int = 50_000
     offline_updates: int = 2_000
-    n_eval_episodes: int = 5
+    # n_eval_episodes × n_envs is the effective sample size for the
+    # perturbed-return mean.  3 × 16 = 48 trajectories is sufficient at
+    # smoke budgets; bump to 5+ for paper runs by overriding in the YAML.
+    n_eval_episodes: int = Field(3, ge=1)
+    # Optional: trim the perturbation grid for smoke configs.  None ⇒ full
+    # grid; <= 0 also means full.  See ``runner._evaluate_perturbations``.
+    perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
     env_overrides: EnvOverrides = Field(default_factory=EnvOverrides)
     algo_overrides: AlgoOverrides = Field(default_factory=AlgoOverrides)
@@ -73,7 +79,9 @@ class MatrixConfig(BaseModel):
     offline_transitions_sweep: list[int] | None = None
     n_envs: int = 64
     eval_n_envs: int | None = None
-    n_eval_episodes: int = 5
+    n_eval_episodes: int = Field(3, ge=1)
+    # Optional: trim the perturbation grid for smoke configs.
+    perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
 
 

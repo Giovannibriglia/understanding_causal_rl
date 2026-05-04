@@ -1,3 +1,8 @@
+# Headline paper run.  Full grid; needs serious compute.
+# total_runs: 4 cells × 2 envs × 7 algos × 7 behaviours × 10 seeds × 2 alpha = 7840
+#   (after _BEHAVIOUR_INDEPENDENT dedup the actual number is lower)
+# wall_time_estimate (n_workers=4): ~31 h on CPU.  Use GPUs / SLURM in
+# practice; per-run cost dominates at 256 envs and total_frames=256k.
 cells: [1, 2, 3, 4]
 envs:
   - tabular-sepsis-v0
