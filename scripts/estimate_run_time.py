@@ -49,9 +49,29 @@ def estimate_total_runs(matrix: MatrixConfig) -> int:
     seeds = len(matrix.seeds) if matrix.seeds else 1
     alpha = _axis_count(matrix.alpha_conf_sweep)
     horizon = _axis_count(matrix.horizon_sweep)
-    bias = _axis_count(matrix.bias_strengths)
-    offline_t = _axis_count(matrix.offline_transitions_sweep)
-    return cells * envs * algos * behaviours * seeds * alpha * horizon * bias * offline_t
+    # When ``coverage_regimes`` is set it replaces the bias×offline axes
+    # for the regime dimension (each regime is one entry).  Otherwise the
+    # bias_strengths / offline_transitions_sweep axes apply.
+    if matrix.coverage_regimes:
+        bias = 1
+        offline_t = 1
+        regimes = len(matrix.coverage_regimes)
+    else:
+        bias = _axis_count(matrix.bias_strengths)
+        offline_t = _axis_count(matrix.offline_transitions_sweep)
+        regimes = 1
+    return (
+        cells
+        * envs
+        * algos
+        * behaviours
+        * seeds
+        * alpha
+        * horizon
+        * bias
+        * offline_t
+        * regimes
+    )
 
 
 def estimate_per_run_seconds(matrix: MatrixConfig) -> float:

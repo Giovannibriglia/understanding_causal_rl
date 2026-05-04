@@ -13,6 +13,7 @@ It serves as the authoritative guide for reproducing results.
 | 1.5 | `horizon_sweep` | ~30 min (CPU) | Δ_TV is horizon-aware |
 | 1.7 | `smoke_v7` | ~10 min (CPU) | v7 acceptance smoke (populates non_id stratum) |
 | 1.8 | `smoke_v8` | ~25 min (CPU) | v8 acceptance smoke (perturbations on, wide bias_strengths) |
+| 1.9 | `coverage_stress` | ~1.7 h (CPU at n_workers=4) | v11 coverage-stress sweep (populates the regime-map "coverage-broken" quadrant) |
 | 2 | `paper` | ~24 h (A100) | Headline figures |
 | 3 | `bias_sweep` | ~8 h (A100) | Confounding sweep figures |
 | 4 | `sample_sweep` | ~4 h (A100) | Sample-size figures |
@@ -127,6 +128,38 @@ Adds three things on top of `smoke_v7`:
   rows.
 - Headline regression mode = ``generalisation`` (recorded in
   ``headline_regression_meta.json``).
+
+---
+
+## Tier 1.9 — Coverage stress (~1.7 h at n_workers=4)
+
+**Config**: `configs/coverage_stress.yaml`
+**Cells**: 1–4 · **Algos**: dqn, cql · **Behaviours**: reward_aligned, uniform
+**Seeds**: 3 · **alpha_conf_sweep**: [0.0, 2.0]
+**coverage_regimes**: full / small / biased / masked_2 / masked_4
+
+```bash
+python scripts/run_full_matrix.py --config coverage_stress --n-workers 4
+```
+
+Adds the *coverage* axis: each ``coverage_regime`` overrides the default
+``offline_transitions`` and ``forbidden_actions`` so the offline buffer
+is deliberately under-covered.  The ``masked_4`` regime in particular
+should drive ``ess_ratio`` below 0.4 and ``min_propensity`` below 0.001
+on the forbidden actions.
+
+**Claim supported:**
+> Coverage breakage is its own failure mode, distinct from graphical
+> identifiability and partial observability.  When the offline buffer is
+> action-masked, ESS falls below 0.5 and min_propensity below 0.01; in
+> such regimes, even cell-1 (id-MDP) runs show return gaps comparable to
+> partial-id cells.  This populates the fourth quadrant of
+> ``regime_map.pdf``.
+
+**Figure produced**: contributes points to ``regime_map.pdf`` (the
+"coverage-broken" quadrant) and to ``coverage_signature.pdf`` (where
+broken regimes pull away from the healthy cluster in the
+ESS / min_propensity log-log plane).
 
 ---
 

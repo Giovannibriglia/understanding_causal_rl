@@ -82,6 +82,10 @@ class RunnerConfig:
     # Optional smoke-only perturbation-grid trim; None or <=0 ⇒ full grid.
     perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
+    # v11 coverage-stress hooks: forbid action indices in the offline
+    # buffer, optionally only for the first ``k`` collected transitions.
+    forbidden_actions: tuple[int, ...] = ()
+    n_action_restriction_steps: int | None = None
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
 
@@ -1053,6 +1057,12 @@ class BenchmarkRunner:
             expose_pi_b=self.cell_cfg.pi_b_known,
             expose_latent=self.behaviour_policy.depends_on_u,
             seed=self.config.seed,
+            forbidden_actions=(
+                list(self.config.forbidden_actions)
+                if self.config.forbidden_actions
+                else None
+            ),
+            n_action_restriction_steps=self.config.n_action_restriction_steps,
         )
         self._compute_bound_metrics(buffer.action[: buffer.size], buffer.reward[: buffer.size])
         if (not self.cell_cfg.pi_b_known) and self.env.is_discrete_action and buffer.size > 0:

@@ -64,6 +64,7 @@ and figure-claim mapping.
 | `configs/smoke.yaml` | Tabular smoke: cells 1–4 × dqn/cql/a2c × seeds [0,1] |
 | `configs/smoke_v7.yaml` | v7 acceptance smoke (alpha_conf + bias_strength sweep; populates the `non_id` stratum) |
 | `configs/smoke_v8.yaml` | v8 acceptance smoke (wide bias_strengths + perturbations on; generalisation regression mode) |
+| `configs/coverage_stress.yaml` | v11 coverage-stress sweep (action-mask regimes; populates the regime-map "coverage-broken" quadrant) |
 | `configs/horizon_sweep.yaml` | Horizon-impact study (Tier 1.5): 5/10/20/40/80 horizons |
 | `configs/paper_smoke.yaml` | Paper-companion smoke; populates id/partial_id/non_id |
 | `configs/paper_bandit.yaml` | Bandit family (UCB/UCB±/RCT) |
@@ -136,14 +137,36 @@ python scripts/run_full_matrix.py --config paper --n-workers 4 --n-gpus 1
 | 3 | `pomdp_known` | False | True | `partial_id` |
 | 4 | `pomdp_unknown` | False | False | `partial_id` / `non_id` |
 
-## Seven figures, six commands
-- `identifiability_panel.pdf`
-- `bandit_regret.pdf`
-- `bound_width_panel.pdf`
-- `bias_sweep.pdf`
-- `sample_sweep.pdf`
-- `headline_pure_divergence.pdf`
-- `headline_fitted.pdf`
+## Headline figures — diagnosis, not prediction
+
+The repo's headline figures form a debugging walkthrough: read top-to-bottom,
+find your run on the regime map, walk down the flowchart to a one-sentence
+diagnosis.  See [docs/diagnosing_a_run.md](docs/diagnosing_a_run.md) for the
+practitioner's checklist.
+
+**Diagnosis (lead with these):**
+- `regime_map.pdf` — four-quadrant scatter of (Δ_TV, gap) with per-quadrant
+  diagnoses overlaid.
+- `diagnosis_flowchart.pdf` — static decision tree from gap → Δ_TV → ESS →
+  diagnosis.
+- `coverage_signature.pdf` — (ESS, min_propensity) log-log scatter that
+  exposes the coverage-broken regime when `coverage_stress` data is present.
+
+**Per-cell diagnostics:**
+- `metrics_curves_cell{1..4}.png` — six diagnostic metrics over training step.
+- `gap_curves_cell{1..4}.png` — divergence-family time-series.
+
+**Robustness and stratification:**
+- `divergence_panel.pdf` — five divergences side-by-side as a robustness
+  check.
+- `causal_metrics_grid.pdf` — backdoor residual / cond MI / target-support
+  overlap by cell.
+- `identifiability_panel.pdf`, `bias_sweep.pdf`, `sample_sweep.pdf`,
+  `bound_width_panel.pdf`, `bandit_regret.pdf`.
+
+**Supplementary (regression):**
+- `headline_pure_divergence.pdf`, `headline_fitted.pdf`,
+  `headline_gap_vs_oracle.png`.
 
 See `docs/figures.md` for the full mapping from figure to claim.
 

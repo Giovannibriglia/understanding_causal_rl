@@ -27,13 +27,22 @@ class BiasedExplorer(abc.ABC):
         n_actions: int | None = None,
         act_dim: int | None = None,
     ) -> tuple[Tensor, Tensor]:
-        if self.bias_strength >= 1.0:
-            return action, log_prob
+        # No early return at ``bias_strength >= 1.0``.  The previous early
+        # return short-circuited the empirical coin-flip, which made
+        # ``bs=1.0`` yield a *raw* family policy and ``bs=0.99`` a mixed
+        # one — visible in ``bias_sweep.pdf`` as a discontinuous jump in
+        # ``min_propensity``.  Letting ``bs=1.0`` flow through the
+        # standard path makes it the limit of the mixing formula, with
+        # all ``coin=1`` selecting family actions.
         batch = obs.shape[0]
         device = obs.device
         if n_actions is not None:
             uniform_action = torch.randint(0, n_actions, (batch, 1), device=device)
-            uniform_log_prob = torch.full((batch,), -torch.log(torch.tensor(float(n_actions))), device=device)
+            uniform_log_prob = torch.full(
+                (batch,),
+                -torch.log(torch.tensor(float(n_actions))),
+                device=device,
+            )
         else:
             assert act_dim is not None
             uniform_action = torch.rand((batch, act_dim), device=device)

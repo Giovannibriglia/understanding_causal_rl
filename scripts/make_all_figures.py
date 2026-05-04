@@ -13,12 +13,18 @@ from causal_rl.plotting.ablations import make_ablations  # noqa: E402
 from causal_rl.plotting.bandit_regret import make_bandit_regret  # noqa: E402
 from causal_rl.plotting.bias_sweep import make_bias_sweep  # noqa: E402
 from causal_rl.plotting.bound_width_panel import make_bound_width_panel  # noqa: E402
+from causal_rl.plotting.causal_metrics_grid import make_causal_metrics_grid  # noqa: E402
 from causal_rl.plotting.cell_grid import make_cell_grid  # noqa: E402
+from causal_rl.plotting.coverage_signature import make_coverage_signature  # noqa: E402
+from causal_rl.plotting.diagnosis_flowchart import make_diagnosis_flowchart  # noqa: E402
+from causal_rl.plotting.divergence_panel import make_divergence_panel  # noqa: E402
 from causal_rl.plotting.gap_curves import make_gap_curves  # noqa: E402
 from causal_rl.plotting.headline_regression import make_headline_regression  # noqa: E402
 from causal_rl.plotting.headline_scatter import make_headline_scatter  # noqa: E402
 from causal_rl.plotting.identifiability_panel import make_identifiability_panel  # noqa: E402
 from causal_rl.plotting.learning_curves import make_learning_curves  # noqa: E402
+from causal_rl.plotting.metrics_curves import make_metrics_curves  # noqa: E402
+from causal_rl.plotting.regime_map import make_regime_map  # noqa: E402
 from causal_rl.plotting.sample_sweep import make_sample_sweep  # noqa: E402
 from causal_rl.plotting.summary_tables import make_summary_tables  # noqa: E402
 
@@ -42,6 +48,14 @@ def main() -> None:
     for prefix in ("tabular", "continuous"):
         out = base_output / prefix
         out.mkdir(parents=True, exist_ok=True)
+        # ---- v11 diagnostic-framing headline figures (run first) ----
+        make_regime_map(args.results, out, env_prefix=prefix)
+        make_coverage_signature(args.results, out, env_prefix=prefix)
+        make_metrics_curves(args.results, out, env_prefix=prefix)
+        make_divergence_panel(args.results, out, env_prefix=prefix)
+        make_causal_metrics_grid(args.results, out, env_prefix=prefix)
+        make_diagnosis_flowchart(out)
+        # ---- existing supporting figures ----
         make_learning_curves(args.results, out, env_prefix=prefix)
         make_gap_curves(args.results, out, env_prefix=prefix)
         make_headline_scatter(args.results, out, env_prefix=prefix)

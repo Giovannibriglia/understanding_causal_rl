@@ -14,6 +14,22 @@ class EnvOverrides(BaseModel):
     alpha_conf: float | None = None
 
 
+class CoverageRegime(BaseModel):
+    """One entry in ``MatrixConfig.coverage_regimes``.
+
+    Three knobs deliberately combined to produce a *coverage regime*:
+    full data, small data, biased behaviour, or action-masked.  Each
+    regime produces its own batch of runs in the matrix expansion.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    offline_transitions: int = 8000
+    forbidden_actions: list[int] = Field(default_factory=list)
+    bias_strength: float = 1.0
+    n_action_restriction_steps: int | None = None
+
+
 class AlgoOverrides(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lr: float | None = None
@@ -50,6 +66,12 @@ class RunConfigModel(BaseModel):
     # grid; <= 0 also means full.  See ``runner._evaluate_perturbations``.
     perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
+    # v11 coverage-stress knobs.  ``forbidden_actions`` blocks the listed
+    # action indices from the offline buffer; ``n_action_restriction_steps``
+    # gates the restriction to the first k collected transitions.  Both
+    # default to no restriction.
+    forbidden_actions: list[int] | None = None
+    n_action_restriction_steps: int | None = None
     env_overrides: EnvOverrides = Field(default_factory=EnvOverrides)
     algo_overrides: AlgoOverrides = Field(default_factory=AlgoOverrides)
 
@@ -83,6 +105,11 @@ class MatrixConfig(BaseModel):
     # Optional: trim the perturbation grid for smoke configs.
     perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
+    # v11 coverage-stress sweep axis.  Each entry is one regime; the
+    # matrix runner emits one task per (cell × algo × … × regime).  Each
+    # regime overrides ``offline_transitions``, ``forbidden_actions``, and
+    # ``bias_strength`` for the runs it produces.
+    coverage_regimes: list[CoverageRegime] | None = None
 
 
 def load_yaml(path: Path) -> dict[str, Any]:

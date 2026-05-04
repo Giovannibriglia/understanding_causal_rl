@@ -49,6 +49,25 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--forbidden-actions",
+        nargs="*",
+        type=int,
+        default=None,
+        help=(
+            "Block these action indices in the offline buffer (v11 coverage"
+            " stress).  Resamples uniformly from the allowed actions."
+        ),
+    )
+    parser.add_argument(
+        "--n-action-restriction-steps",
+        type=int,
+        default=None,
+        help=(
+            "Apply ``--forbidden-actions`` only during the first k collected"
+            " transitions.  Default None ⇒ apply throughout."
+        ),
+    )
+    parser.add_argument(
         "--eval-perturbations",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -89,6 +108,8 @@ def main() -> None:
         n_eval_episodes=args.n_eval_episodes,
         perturbation_grid_size=args.perturbation_grid_size,
         eval_perturbations=args.eval_perturbations,
+        forbidden_actions=tuple(args.forbidden_actions or ()),
+        n_action_restriction_steps=args.n_action_restriction_steps,
     )
     runner = BenchmarkRunner(cfg)
     runner.run()

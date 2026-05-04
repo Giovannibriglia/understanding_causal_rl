@@ -118,9 +118,28 @@ def _nan_to_null(obj: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _build_manifest_index(results_dir: Path) -> dict[str, dict[str, str]]:
+    """Read ``manifest.csv`` and key by ``output_path`` (the run dir).
+
+    Used to attach the v11 sweep-axis values (``coverage_regime``,
+    ``forbidden_actions``) to each run since these don't get logged
+    to the per-run ``meta.json`` or ``eval.csv``.
+    """
+    manifest_path = results_dir / "manifest.csv"
+    if not manifest_path.exists():
+        return {}
+    index: dict[str, dict[str, str]] = {}
+    for row in _read_all_rows(manifest_path):
+        path = str(row.get("output_path", "")).strip()
+        if path:
+            index[path] = row
+    return index
+
+
 def _collect_runs(results_dir: Path) -> list[dict[str, Any]]:
     """Walk results_dir and collect the last eval row + meta for each run."""
     runs: list[dict[str, Any]] = []
+    manifest_index = _build_manifest_index(results_dir)
     for eval_path in sorted(results_dir.rglob("eval.csv")):
         run_dir = eval_path.parent
         last_eval = _read_last_row(eval_path)
@@ -131,6 +150,7 @@ def _collect_runs(results_dir: Path) -> list[dict[str, Any]]:
         meta_path = run_dir / "meta.json"
         if meta_path.exists():
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        manifest_row = manifest_index.get(str(run_dir), {})
 
         cell = int(meta.get("cell") or last_eval.get("cell") or 0)
         env = str(meta.get("env") or last_eval.get("env_name") or "unknown")
@@ -160,6 +180,8 @@ def _collect_runs(results_dir: Path) -> list[dict[str, Any]]:
                 "behaviour": beh,
                 "seed": seed,
                 "horizon": horizon,
+                "coverage_regime": str(manifest_row.get("coverage_regime") or "") or None,
+                "forbidden_actions": str(manifest_row.get("forbidden_actions") or ""),
                 "id_status": str(last_eval.get("id_status") or "non_id"),
                 "alpha_conf": _sf(last_eval.get("alpha_conf")),
                 "bias_strength": _sf(last_eval.get("bias_strength")),
@@ -476,6 +498,42 @@ def _compute_claims(
             "observed_n": n_non_id,
             "verdict": c5_verdict,
         },
+        "claim_6_coverage_break_distinct_regime": _claim_6_coverage_break(runs),
+    }
+
+
+def _claim_6_coverage_break(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Claim 6 (v11): in the masked_4 regime, gap > 5 even in cell 1.
+
+    Coverage breakage is its own failure mode, distinct from graphical
+    identifiability and partial observability.  Verdict is
+    ``not_yet_testable`` when the manifest contains no
+    ``coverage_regime`` axis.
+    """
+    masked_runs = [
+        r
+        for r in runs
+        if r.get("coverage_regime") == "masked_4"
+        and r.get("cell") == 1
+        and r.get("gap_to_oracle") is not None
+    ]
+    if not masked_runs:
+        return {
+            "expected": "in masked_4 regime, gap > 5 even in cell 1",
+            "observed_cell1_masked4_gap": None,
+            "verdict": "not_yet_testable",
+        }
+    mean_gap = _mean([r["gap_to_oracle"] for r in masked_runs])
+    return {
+        "expected": "in masked_4 regime, gap > 5 even in cell 1",
+        "observed_cell1_masked4_gap": mean_gap,
+        "verdict": (
+            "supported"
+            if mean_gap is not None and mean_gap > 5.0
+            else "refuted"
+            if mean_gap is not None
+            else "not_yet_testable"
+        ),
     }
 
 
@@ -590,6 +648,31 @@ def make_summary(results_dir: Path, output_path: Path | None = None) -> Path:
                 if group:
                     per_cell_per_horizon[f"{cell}_h{h}"] = _group_summary(group)
 
+    # Per-coverage-regime breakdown (v11): only emitted when the manifest
+    # has a coverage_regimes sweep axis.
+    regimes = sorted(
+        {str(r["coverage_regime"]) for r in runs if r.get("coverage_regime")}
+    )
+    per_coverage_regime_summary: dict[str, Any] | None = None
+    per_cell_per_coverage_regime: dict[str, Any] | None = None
+    if regimes:
+        per_coverage_regime_summary = {
+            regime: _group_summary(
+                [r for r in runs if r.get("coverage_regime") == regime]
+            )
+            for regime in regimes
+        }
+        per_cell_per_coverage_regime = {}
+        for cell in cells:
+            for regime in regimes:
+                group = [
+                    r
+                    for r in runs
+                    if r["cell"] == cell and r.get("coverage_regime") == regime
+                ]
+                if group:
+                    per_cell_per_coverage_regime[f"{cell}_{regime}"] = _group_summary(group)
+
     # ---- Regression + claims ----
     regression = _compute_regression(results_dir)
     claims = _compute_claims(runs, regression)
@@ -623,6 +706,17 @@ def make_summary(results_dir: Path, output_path: Path | None = None) -> Path:
     if per_horizon_summary is not None:
         summary["per_horizon_summary"] = per_horizon_summary
         summary["per_cell_per_horizon"] = per_cell_per_horizon
+    if per_coverage_regime_summary is not None:
+        summary["per_coverage_regime_summary"] = per_coverage_regime_summary
+        summary["per_cell_per_coverage_regime"] = per_cell_per_coverage_regime
+
+    # Regime-map quadrant counts (v11): always emit when there's data.
+    try:
+        from causal_rl.plotting.regime_map import regime_quadrant_counts
+
+        summary["regime_quadrant_counts"] = regime_quadrant_counts(results_dir)
+    except Exception:  # noqa: BLE001
+        pass
 
     output_path.write_text(
         json.dumps(_nan_to_null(summary), indent=2, ensure_ascii=False),
