@@ -28,6 +28,7 @@ from causal_rl.plotting.regime_map import (  # noqa: E402
     make_regime_map,
     regime_quadrant_counts,
 )
+from causal_rl.plotting.static_diagnostics import make_static_diagnostics  # noqa: E402
 
 
 _EVAL_HEADER = [
@@ -218,3 +219,13 @@ def test_causal_metrics_grid_renders(tmp_path: Path) -> None:
     _write_synthetic_runs(results)
     make_causal_metrics_grid(results, out)
     assert (out / "causal_metrics_grid.pdf").exists()
+
+
+def test_static_diagnostics_renders(tmp_path: Path) -> None:
+    """v13: per-cell box plots of static offline-buffer diagnostics."""
+    results = tmp_path / "results"
+    out = tmp_path / "fig"
+    _write_synthetic_runs(results)
+    make_static_diagnostics(results, out)
+    assert (out / "static_diagnostics.pdf").exists()
+    assert (out / "static_diagnostics.png").exists()
