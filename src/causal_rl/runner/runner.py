@@ -333,6 +333,7 @@ class BenchmarkRunner:
         row["pi_b_recovery_kl"] = self._pi_b_recovery_kl
         row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
         row["bound_width_max"] = self._bound_metrics.get("bound_width_max", float("nan"))
+        row["bound_width_std"] = self._bound_metrics.get("bound_width_std", float("nan"))
         row["n_arms_with_informative_bound"] = self._bound_metrics.get(
             "n_arms_with_informative_bound", self.algo.n_informative_bounds()
         )
@@ -408,6 +409,7 @@ class BenchmarkRunner:
         row["pi_b_recovery_kl"] = self._pi_b_recovery_kl
         row["bound_width_mean"] = self._bound_metrics.get("bound_width_mean", float("nan"))
         row["bound_width_max"] = self._bound_metrics.get("bound_width_max", float("nan"))
+        row["bound_width_std"] = self._bound_metrics.get("bound_width_std", float("nan"))
         row["n_arms_with_informative_bound"] = self._bound_metrics.get(
             "n_arms_with_informative_bound", float("nan")
         )
@@ -478,6 +480,7 @@ class BenchmarkRunner:
             self._bound_metrics = {
                 "bound_width_mean": float("nan"),
                 "bound_width_max": float("nan"),
+                "bound_width_std": float("nan"),
                 "n_arms_with_informative_bound": float("nan"),
                 **nan_per_arm,
             }
@@ -498,9 +501,17 @@ class BenchmarkRunner:
             per_arm[f"bound_lower_a{a}"] = float(r.lower)
             per_arm[f"bound_upper_a{a}"] = float(r.upper)
             per_arm[f"obs_arm_count_a{a}"] = int((acts == a).sum().item())
+        # ``bound_width_mean`` is mathematically constant at
+        # ``1 - 1/n_actions`` for any p_a summing to 1 — it's preserved
+        # in the schema for backward compatibility but doesn't encode
+        # run-specific information.  ``bound_width_max`` (rarest arm)
+        # and ``bound_width_std`` (spread across arms) are the two
+        # informative aggregates; ``static_diagnostics`` plots both.
+        widths_t = torch.tensor(widths, dtype=torch.float32)
         self._bound_metrics = {
             "bound_width_mean": float(sum(widths) / len(widths)),
             "bound_width_max": float(max(widths)),
+            "bound_width_std": float(widths_t.std(unbiased=False).item()),
             "n_arms_with_informative_bound": float(n_inf),
             **per_arm,
         }

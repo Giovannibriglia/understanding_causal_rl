@@ -25,22 +25,38 @@ map, then walk down the flowchart to a one-sentence diagnosis.
    per cell (TV, KL, χ², sup, MMD², KS).  Comprehensive view of all
    evolving divergences.  Pre-v13 this figure plotted offline-buffer
    properties that don't change during training; those moved to
-   ``static_diagnostics.pdf`` (figure 7 below) where a box plot is the
-   right idiom.
+   ``static_diagnostics_{max,std}.pdf`` (figure 7 below) where a box
+   plot is the right idiom.
 5. **`gap_curves_cell{1..4}.png`** — divergence-family time-series per
    cell.  Δ_TV / Δ_KL / Δ_χ² / Δ_sup over training.  The narrative
    4-panel; ``metrics_curves`` is the comprehensive 6-panel.
 
 ## Section 4 — Supplementary diagnostics
 
-7. **`static_diagnostics.pdf`** — six box plots of *static* offline-buffer
-   diagnostics (``min_propensity``, ``ess_ratio``,
-   ``coverage_ess_histogram``, ``coverage_action_freq_min``,
-   ``propensity_calibration_ece``, ``bound_width_mean``), one box per
-   cell.  These metrics describe the offline dataset, not the trained
-   policy, so they're the same value at every checkpoint within a run —
-   the cross-run variation only shows up across runs (one box per cell)
-   or across regimes.  Use this when reading the dataset's coverage /
+7. **`static_diagnostics_max.pdf`** and **`static_diagnostics_std.pdf`** —
+   two variants of the static offline-buffer diagnostics figure, one
+   box per cell.  Five panels are shared (``min_propensity``,
+   ``ess_ratio``, ``coverage_ess_histogram``,
+   ``coverage_action_freq_min``, ``propensity_calibration_ece``); the
+   sixth panel differs:
+
+   - ``_max``: ``bound_width_max`` — width of the rarest-played arm.
+     Grows with π_b bias because rare arms have large ``1 − p_a``.
+   - ``_std``: ``bound_width_std`` — population std across arms.  Zero
+     under uniform π_b (all per-arm widths equal ``1 − 1/n_actions``);
+     grows monotonically with bias.
+
+   ``bound_width_mean`` is **not** plotted because it is mathematically
+   constant at ``1 − 1/n_actions = 0.875`` for any ``p_a`` summing to 1
+   — an algebraic identity, not a measurement.  ``max`` and ``std`` are
+   the two informative aggregates; the test
+   ``tests/metrics/test_bound_width_aggregates.py`` codifies the
+   contract.
+
+   These metrics describe the offline dataset, not the trained policy,
+   so they're the same value at every checkpoint within a run — the
+   cross-run variation only shows up across runs (one box per cell) or
+   across regimes.  Use this when reading the dataset's coverage /
    identifiability properties; use ``metrics_curves`` and ``gap_curves``
    when reading the trained policy's behaviour.
 

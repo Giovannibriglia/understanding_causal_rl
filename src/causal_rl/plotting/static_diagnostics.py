@@ -7,6 +7,19 @@ per-run static summaries; a box plot per cell is.
 
 The complementary module ``metrics_curves`` plots the metrics that
 *do* evolve during training (the six Δ-divergence variants).
+
+v14: ``bound_width_mean`` is mathematically constant at
+``1 - 1/n_actions`` for any p_a summing to 1 — it encodes nothing about
+the run.  Two informative aggregates replace it across two figure
+variants:
+
+* ``static_diagnostics_max.{pdf,png}`` — bottom-right is
+  ``bound_width_max`` (rarest-played arm).
+* ``static_diagnostics_std.{pdf,png}`` — bottom-right is
+  ``bound_width_std`` (spread across arms; zero under uniform π_b).
+
+The other five panels are shared across the two variants.  CSV scan
+happens once for both figures.
 """
 
 from __future__ import annotations
@@ -22,39 +35,53 @@ from causal_rl.plotting.style import apply_style
 
 _ID_STATUS_COLORS = {"id": "#4CAF50", "partial_id": "#FF9800", "non_id": "#F44336"}
 
-_PANELS: tuple[tuple[str, str, str], ...] = (
-    # (csv_column, title, subtitle)
-    (
-        "min_propensity",
-        "min propensity",
-        "lower → coverage broken on at least one (s, a)",
+
+# v14: the bottom-right panel is parametrised across two variants.  The
+# other five panels are shared.
+_BOUND_PANELS: dict[str, tuple[str, str, str]] = {
+    "max": (
+        "bound_width_max",
+        "Bareinboim natural-bound width (max)",
+        "rarest-played arm; grows with π_b bias",
     ),
-    (
-        "ess_ratio",
-        "ESS / N",
-        "lower → buffer over-represents some (s, a)",
+    "std": (
+        "bound_width_std",
+        "Bareinboim natural-bound width (std)",
+        "0 = uniform π_b across arms; grows with bias",
     ),
-    (
-        "coverage_ess_histogram",
-        "ESS_histogram / N",
-        "lower → action support is sparse",
-    ),
-    (
-        "coverage_action_freq_min",
-        "min action freq",
-        "0 → at least one action never observed",
-    ),
-    (
-        "propensity_calibration_ece",
-        "ECE (π_b model)",
-        "higher → propensity model misfit",
-    ),
-    (
-        "bound_width_mean",
-        "Bareinboim natural-bound width",
-        "0.875 = uniform π_b floor (n_actions=8)",
-    ),
-)
+}
+
+
+def _panels_for(bound_variant: str) -> tuple[tuple[str, str, str], ...]:
+    """The six static-diagnostic panels for a given bound variant."""
+    return (
+        (
+            "min_propensity",
+            "min propensity",
+            "lower → coverage broken on at least one (s, a)",
+        ),
+        (
+            "ess_ratio",
+            "ESS / N",
+            "lower → buffer over-represents some (s, a)",
+        ),
+        (
+            "coverage_ess_histogram",
+            "ESS_histogram / N",
+            "lower → action support is sparse",
+        ),
+        (
+            "coverage_action_freq_min",
+            "min action freq",
+            "0 → at least one action never observed",
+        ),
+        (
+            "propensity_calibration_ece",
+            "ECE (π_b model)",
+            "higher → propensity model misfit",
+        ),
+        _BOUND_PANELS[bound_variant],
+    )
 
 
 def _safe_float(val: object) -> float:
@@ -72,20 +99,24 @@ def _read_last_row(path: Path) -> dict[str, str] | None:
     return rows[-1] if rows else None
 
 
-def make_static_diagnostics(
-    results_dir: Path,
-    output_dir: Path,
-    env_prefix: str | None = None,
-) -> None:
-    """One row of six box-plot panels, one box per cell.
+# Columns we need to load from each eval.csv last row.  Union of the two
+# variant column lists plus cell / id_status routing fields.
+_NEEDED_COLUMNS: tuple[str, ...] = (
+    "min_propensity",
+    "ess_ratio",
+    "coverage_ess_histogram",
+    "coverage_action_freq_min",
+    "propensity_calibration_ece",
+    "bound_width_max",
+    "bound_width_std",
+)
 
-    Each box aggregates final-checkpoint values across runs in that cell.
-    Panels with all-NaN columns render a "not collected" annotation
-    rather than an empty plot.
-    """
-    apply_style()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    # per_cell[cell][metric] = list[float] (final-checkpoint value per run)
+
+def _load_final_eval_rows(
+    results_dir: Path, env_prefix: str | None
+) -> tuple[dict[int, dict[str, list[float]]], dict[int, str]]:
+    """Walk ``results_dir`` and collect the final-checkpoint values per
+    (cell, metric) pair.  Returns ``(per_cell, cell_id_status)``."""
     per_cell: dict[int, dict[str, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
@@ -103,17 +134,24 @@ def make_static_diagnostics(
         except (TypeError, ValueError):
             continue
         cell_id_status.setdefault(cell, str(last.get("id_status", "non_id")))
-        for col, _, _ in _PANELS:
+        for col in _NEEDED_COLUMNS:
             v = _safe_float(last.get(col))
             if np.isfinite(v):
                 per_cell[cell][col].append(v)
-    if not per_cell:
-        print("[static_diagnostics] no eval.csv rows found; skipping.")
-        return
+    return per_cell, cell_id_status
 
+
+def _render_six_panel(
+    per_cell: dict[int, dict[str, list[float]]],
+    cell_id_status: dict[int, str],
+    panels: tuple[tuple[str, str, str], ...],
+    out_stem: Path,
+    title_suffix: str,
+) -> None:
+    """Render one 6-panel figure to ``{out_stem}.pdf`` and ``{out_stem}.png``."""
     cells = sorted(per_cell.keys())
     fig, axes = plt.subplots(2, 3, figsize=(13.0, 6.0))
-    for ax, (col, title, subtitle) in zip(axes.flat, _PANELS, strict=True):
+    for ax, (col, title, subtitle) in zip(axes.flat, panels, strict=True):
         data: list[list[float]] = []
         labels: list[str] = []
         colors: list[str] = []
@@ -160,12 +198,45 @@ def make_static_diagnostics(
         ax.tick_params(axis="both", labelsize=8)
 
     fig.suptitle(
-        "Static offline-buffer diagnostics by cell  ·  per-run summaries, not trajectories",
+        "Static offline-buffer diagnostics by cell"
+        "  ·  per-run summaries, not trajectories"
+        + title_suffix,
         fontsize=12,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    pdf = output_dir / "static_diagnostics.pdf"
-    png = output_dir / "static_diagnostics.png"
-    fig.savefig(pdf, bbox_inches="tight")
-    fig.savefig(png, dpi=300, bbox_inches="tight")
+    out_stem.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_stem.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(out_stem.with_suffix(".png"), dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+
+def make_static_diagnostics(
+    results_dir: Path,
+    output_dir: Path,
+    env_prefix: str | None = None,
+) -> None:
+    """Render BOTH variants: ``static_diagnostics_max.{pdf,png}`` and
+    ``static_diagnostics_std.{pdf,png}``.
+
+    ``bound_width_mean`` is excluded from both because it is
+    mathematically constant at ``1 - 1/n_actions`` (algebraic identity);
+    it encodes nothing about the run.  See ``docs/figures.md`` for the
+    rationale and ``tests/metrics/test_bound_width_aggregates.py`` for
+    the contract.
+    """
+    apply_style()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    per_cell, cell_id_status = _load_final_eval_rows(results_dir, env_prefix)
+    if not per_cell:
+        print("[static_diagnostics] no eval.csv rows found; skipping.")
+        return
+
+    for variant in ("max", "std"):
+        _render_six_panel(
+            per_cell,
+            cell_id_status,
+            _panels_for(variant),
+            output_dir / f"static_diagnostics_{variant}",
+            title_suffix=f"  ·  bound width: {variant}",
+        )

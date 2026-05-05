@@ -54,6 +54,8 @@ _EVAL_HEADER = [
     "target_support_overlap",
     "backdoor_residual_mean",
     "bound_width_mean",
+    "bound_width_max",
+    "bound_width_std",
     "id_status",
 ]
 _TRAIN_HEADER = [
@@ -128,6 +130,10 @@ def _write_synthetic_runs(results_dir: Path) -> None:
                     "target_support_overlap": 0.8 if ess > 0.5 else 0.3,
                     "backdoor_residual_mean": 0.05 if cell <= 2 else float("nan"),
                     "bound_width_mean": 0.875,
+                    # v14: vary _max and _std per-cell so the box plots
+                    # show structure rather than collapsing to a point.
+                    "bound_width_max": 0.875 + 0.02 * cell,
+                    "bound_width_std": 0.01 * cell,
                     "id_status": status,
                 }
             )
@@ -222,10 +228,15 @@ def test_causal_metrics_grid_renders(tmp_path: Path) -> None:
 
 
 def test_static_diagnostics_renders(tmp_path: Path) -> None:
-    """v13: per-cell box plots of static offline-buffer diagnostics."""
+    """v14: per-cell box plots of static offline-buffer diagnostics, in
+    two variants — ``_max`` (rarest-played arm) and ``_std`` (spread
+    across arms).  ``bound_width_mean`` is excluded because it is
+    algebraically constant at ``1 - 1/n_actions``."""
     results = tmp_path / "results"
     out = tmp_path / "fig"
     _write_synthetic_runs(results)
     make_static_diagnostics(results, out)
-    assert (out / "static_diagnostics.pdf").exists()
-    assert (out / "static_diagnostics.png").exists()
+    assert (out / "static_diagnostics_max.pdf").exists()
+    assert (out / "static_diagnostics_max.png").exists()
+    assert (out / "static_diagnostics_std.pdf").exists()
+    assert (out / "static_diagnostics_std.png").exists()
