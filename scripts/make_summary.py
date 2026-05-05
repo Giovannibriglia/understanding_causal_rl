@@ -243,152 +243,105 @@ def _group_summary(group: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _compute_regression(results_dir: Path) -> dict[str, Any]:
-    """Compute headline regression metrics (requires scikit-learn)."""
-    try:
-        from sklearn.ensemble import RandomForestRegressor  # type: ignore[import-untyped]
-        from sklearn.linear_model import LinearRegression  # type: ignore[import-untyped]
-        from sklearn.model_selection import cross_val_score  # type: ignore[import-untyped]
-        from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
+    """Headline regression metrics, sourced from
+    ``make_headline_regression``.
 
-        from causal_rl.identification.id_oracle import ID_STATUS_ORDER
+    v15: this function used to fit its own ``LinearRegression`` model
+    on the joined eval+perturbed data, while
+    ``causal_rl.plotting.headline_regression.make_headline_regression``
+    fitted a ``RidgeCV`` on the same X / y.  The two reported different
+    ``r2_pooled_cv`` values for the same data — 0.484 (OLS) vs 0.957
+    (Ridge), with the OLS path producing catastrophic per-stratum CV
+    R² (-4.91 in partial_id) due to overfitting.
+
+    The fix: have ``_compute_regression`` *delegate* to
+    ``make_headline_regression``, write its JSON / CSV outputs into the
+    results directory, and read them back to populate the summary
+    block.  Single source of truth → impossible for the two outputs to
+    drift.
+
+    See ``docs/v15_partial_id_overfitting.md`` for the diagnostic
+    analysis of why OLS fails inside partial_id where Ridge succeeds.
+    """
+    try:
+        from causal_rl.plotting.headline_regression import make_headline_regression
     except ImportError as exc:
         return {"error": str(exc)}
 
-    # Load joined data (eval + eval_perturbed per run).
-    rows: list[dict[str, Any]] = []
-    for eval_path in sorted(results_dir.rglob("eval.csv")):
-        run_dir = eval_path.parent
-        last_eval = _read_last_row(eval_path)
-        if last_eval is None:
-            continue
-        perturbed_path = run_dir / "eval_perturbed.csv"
-        if not perturbed_path.exists():
-            continue
-        perturbed_rows = _read_all_rows(perturbed_path)
-        if not perturbed_rows:
-            continue
+    # Run the regression and write its outputs to ``results_dir``.
+    # ``headline_regression_{meta.json,table.csv,stratified_r2.csv}``
+    # land alongside the per-run subdirectories.
+    try:
+        make_headline_regression(results_dir, results_dir)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
 
-        oracle_ret = _sf(last_eval.get("eval_oracle_return_mean")) or 0.0
-        id_status = str(last_eval.get("id_status") or "non_id")
-        for pr in perturbed_rows:
-            pert_ret = _sf(pr.get("eval_perturbed_return_mean")) or 0.0
-            rows.append(
+    meta_path = results_dir / "headline_regression_meta.json"
+    table_path = results_dir / "headline_regression_table.csv"
+    strat_path = results_dir / "headline_stratified_r2.csv"
+    if not meta_path.exists() or not strat_path.exists():
+        # ``make_headline_regression`` returns early on insufficient
+        # data without writing files — preserve the legacy "error"
+        # signal for ``_compute_claims`` to interpret.
+        return {"error": "insufficient data (headline_regression wrote no outputs)"}
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+    # Per-stratum R² lives in the stratified CSV.  ``stratum`` is one of
+    # "id", "partial_id", "non_id", "pooled".
+    strat_rows = _read_all_rows(strat_path)
+    by_stratum = {r["stratum"]: r for r in strat_rows}
+
+    def _r2(stratum: str, kind: str) -> float | None:
+        row = by_stratum.get(stratum)
+        if row is None:
+            return None
+        return _sf(row.get(kind))
+
+    def _n(stratum: str) -> int:
+        row = by_stratum.get(stratum)
+        if row is None:
+            return 0
+        try:
+            return int(float(row["n"]))
+        except (KeyError, TypeError, ValueError):
+            return 0
+
+    # Top-features summary read from the regression table.  Columns:
+    # feature, coef, ci_lo, ci_hi, importance_rf, partial_r2, dropped.
+    top_features: list[dict[str, Any]] = []
+    if table_path.exists():
+        for r in _read_all_rows(table_path):
+            if str(r.get("dropped", "")).lower() in ("true", "1"):
+                continue
+            top_features.append(
                 {
-                    "G": oracle_ret - pert_ret,
-                    "id_status": id_status,
-                    "id_status_ordinal": ID_STATUS_ORDER.get(id_status, 2),
-                    "delta_tv": _sf(last_eval.get("delta_tv")) or 0.0,
-                    "bound_width_mean": _sf(last_eval.get("bound_width_mean")) or 0.0,
-                    "min_propensity": _sf(last_eval.get("min_propensity")) or 0.0,
-                    "ess_ratio": _sf(last_eval.get("ess_ratio")) or 0.0,
-                    "overlap_at_1e-2": _sf(last_eval.get("overlap_at_1e-2")) or 0.0,
-                    "tail_mass_top10pct": _sf(last_eval.get("tail_mass_top10pct")) or 0.0,
-                    "propensity_calibration_ece": _sf(
-                        last_eval.get("propensity_calibration_ece")
-                    ),
-                    "bias_strength": _sf(last_eval.get("bias_strength")) or 1.0,
-                    "D_env_KS": _sf(pr.get("D_env_KS")) or 0.0,
-                    "alpha_conf": _sf(last_eval.get("alpha_conf")) or 0.0,
-                    "expose_z": _sf(last_eval.get("expose_z")) or 0.0,
-                    "pi_b_known": _sf(last_eval.get("pi_b_known")) or 0.0,
+                    "feature": str(r.get("feature", "")),
+                    "coef": _sf(r.get("coef")),
+                    "importance": _sf(r.get("importance_rf")),
+                    "partial_r2": _sf(r.get("partial_r2")),
                 }
             )
-
-    if len(rows) < 10:
-        return {"error": f"insufficient data ({len(rows)} joined rows; need ≥10)"}
-
-    feature_cols = [c for c in _FEATURE_COLS if c in rows[0]]
-    X_raw = np.array(  # noqa: N806
-        [[r.get(c) or 0.0 for c in feature_cols] for r in rows], dtype=np.float64
-    )
-    y = np.array([r["G"] for r in rows], dtype=np.float64)
-    id_statuses = [r["id_status"] for r in rows]
-
-    # Impute NaN propensity ECE with column median.
-    if "propensity_calibration_ece" in feature_cols:
-        ece_col = feature_cols.index("propensity_calibration_ece")
-        mask = np.isnan(X_raw[:, ece_col])
-        if mask.any() and (~mask).any():
-            X_raw[mask, ece_col] = float(np.nanmedian(X_raw[:, ece_col]))
-        elif mask.all():
-            X_raw[:, ece_col] = 0.0
-
-    # Drop constant features (fix 3.1).
-    stds = X_raw.std(axis=0)
-    keep = stds >= 1e-8
-    dropped_features = [feature_cols[i] for i in range(len(feature_cols)) if not keep[i]]
-    active_cols = [feature_cols[i] for i in range(len(feature_cols)) if keep[i]]
-    X_active = X_raw[:, keep]  # noqa: N806
-
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X_active)  # noqa: N806
-
-    # Pooled linear regression.
-    lin = LinearRegression().fit(X, y)
-    y_pred = lin.predict(X)
-    ss_res = float(np.sum((y - y_pred) ** 2))
-    ss_tot = float(np.sum((y - y.mean()) ** 2))
-    r2_train = 1.0 - ss_res / max(ss_tot, 1e-12)
-    n = len(y)
-    r2_cv: float | None = None
-    if n >= 6:
-        cv = min(5, n // 2)
-        scores = cross_val_score(LinearRegression(), X, y, cv=cv, scoring="r2")
-        r2_cv = float(np.mean(scores))
-
-    # Random forest for feature importances.
-    rf = RandomForestRegressor(n_estimators=200, max_depth=8, random_state=0).fit(X, y)
-
-    # Per-stratum R².
-    id_counts: dict[str, int] = {}
-    strat: dict[str, dict[str, float | None]] = {}
-    for status in ["id", "partial_id", "non_id"]:
-        s_mask = np.array([s == status for s in id_statuses])
-        id_counts[status] = int(s_mask.sum())
-        if id_counts[status] < 10:
-            strat[status] = {"r2_train": None, "r2_cv": None}
-            continue
-        lr_s = LinearRegression().fit(X[s_mask], y[s_mask])
-        y_s, y_s_pred = y[s_mask], lr_s.predict(X[s_mask])
-        ss_r = float(np.sum((y_s - y_s_pred) ** 2))
-        ss_t = float(np.sum((y_s - y_s.mean()) ** 2))
-        r2_s_train: float | None = 1.0 - ss_r / max(ss_t, 1e-12)
-        r2_s_cv: float | None = None
-        n_s = id_counts[status]
-        if n_s >= 6:
-            cv_s = min(5, n_s // 2)
-            r2_s_cv = float(
-                np.mean(
-                    cross_val_score(LinearRegression(), X[s_mask], y[s_mask], cv=cv_s, scoring="r2")
-                )
-            )
-        strat[status] = {"r2_train": r2_s_train, "r2_cv": r2_s_cv}
-
-    top_features = sorted(
-        [
-            {
-                "feature": f,
-                "coef": float(lin.coef_[i]),
-                "importance": float(rf.feature_importances_[i]),
-            }
-            for i, f in enumerate(active_cols)
-        ],
-        key=lambda x: -x["importance"],
-    )[:5]
+        top_features.sort(
+            key=lambda x: -(x["importance"] or 0.0),
+        )
+        top_features = top_features[:5]
 
     return {
-        "r2_pooled_train": r2_train,
-        "r2_pooled_cv": r2_cv,
-        "r2_id_train": strat["id"]["r2_train"],
-        "r2_id_cv": strat["id"]["r2_cv"],
-        "r2_partial_id_train": strat["partial_id"]["r2_train"],
-        "r2_partial_id_cv": strat["partial_id"]["r2_cv"],
-        "r2_non_id_train": strat["non_id"]["r2_train"],
-        "r2_non_id_cv": strat["non_id"]["r2_cv"],
-        "n_id": id_counts["id"],
-        "n_partial_id": id_counts["partial_id"],
-        "n_non_id": id_counts["non_id"],
-        "dropped_features": dropped_features,
+        "estimator": "RidgeCV",
+        "mode": meta.get("mode", "unknown"),
+        "r2_pooled_train": _r2("pooled", "r2_train"),
+        "r2_pooled_cv": _r2("pooled", "r2_cv"),
+        "r2_id_train": _r2("id", "r2_train"),
+        "r2_id_cv": _r2("id", "r2_cv"),
+        "r2_partial_id_train": _r2("partial_id", "r2_train"),
+        "r2_partial_id_cv": _r2("partial_id", "r2_cv"),
+        "r2_non_id_train": _r2("non_id", "r2_train"),
+        "r2_non_id_cv": _r2("non_id", "r2_cv"),
+        "n_id": _n("id"),
+        "n_partial_id": _n("partial_id"),
+        "n_non_id": _n("non_id"),
+        "dropped_features": list(meta.get("dropped_features", [])),
         "top_features_by_rf_importance": top_features,
     }
 
