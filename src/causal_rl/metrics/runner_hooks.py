@@ -179,6 +179,27 @@ def compute_gap_metrics(
             p_do_hat_ipw = p_do_hat
             delta_tv_conditional = float((p_obs_hat_ipw - p_do_hat_ipw).abs().mean().item())
 
+        # v13: also compute MMD² and KS on the discrete sample tensors.
+        # These are the "robustness check" divergences plotted by
+        # ``metrics_curves`` and ``divergence_panel``.  Pre-v13 the discrete
+        # path returned 0.0 for both, leaving the corresponding panels
+        # rendered as flat lines or empty bars on tabular runs.
+        delta_mmd2 = 0.0
+        delta_ks = 0.0
+        if has_sampling:
+            obs_flat = obs_samp.to(torch.float32)
+            do_flat = do_samp.to(torch.float32)
+            try:
+                delta_mmd2 = float(
+                    mmd2(obs_flat.reshape(-1, 1), do_flat.reshape(-1, 1)).item()
+                )
+            except Exception:  # noqa: BLE001
+                delta_mmd2 = 0.0
+            try:
+                delta_ks = float(_empirical_ks(obs_flat, do_flat).item())
+            except Exception:  # noqa: BLE001
+                delta_ks = 0.0
+
         return {
             "delta_tv": delta_tv,
             "delta_tv_ci_lo": ci_lo,
@@ -186,6 +207,8 @@ def compute_gap_metrics(
             "delta_kl": delta_kl,
             "delta_chi2": delta_chi2,
             "delta_sup": delta_sup,
+            "delta_mmd2": delta_mmd2,
+            "delta_ks": delta_ks,
             "delta_tv_marginal": delta_tv_marginal,
             "delta_tv_conditional": delta_tv_conditional,
         }

@@ -8,9 +8,12 @@ Each panel addresses a different failure mode:
 * Panel 2 — ``cond_mi_r_z_given_sa``: all four cells.  Higher in
   partial-observability cells (3, 4) where Z carries reward-relevant
   information beyond what S and A explain.
-* Panel 3 — ``target_support_overlap``: all four cells.  Indicates
-  whether the eval-distribution support is contained in π_b's support;
-  values < 0.5 signal off-policy estimation is unreliable.
+* Panel 3 — ``target_support_overlap``: all four cells (since v13 the
+  propensity model is fit unconditionally — pre-v13 the predicate
+  ``not pi_b_known`` skipped fitting in cells 1/3, leaving this column
+  populated only in cells 2/4).  Indicates whether the eval-distribution
+  support is contained in π_b's support; values < 0.5 signal off-policy
+  estimation is unreliable.
 
 Each panel is a per-cell box plot.  Cells are ordered 1, 2, 3, 4 and
 coloured by ``id_status``.
