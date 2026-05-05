@@ -28,6 +28,7 @@ from causal_rl.plotting.regime_map import (  # noqa: E402
     make_regime_map,
     regime_quadrant_counts,
 )
+from causal_rl.plotting.static_diagnostics import make_static_diagnostics  # noqa: E402
 
 
 _EVAL_HEADER = [
@@ -62,6 +63,12 @@ _TRAIN_HEADER = [
     "algorithm",
     "behaviour_policy",
     "seed",
+    "delta_tv",
+    "delta_kl",
+    "delta_chi2",
+    "delta_sup",
+    "delta_mmd2",
+    "delta_ks",
     "min_propensity",
     "ess_ratio",
     "propensity_calibration_ece",
@@ -124,6 +131,11 @@ def _write_synthetic_runs(results_dir: Path) -> None:
                     "id_status": status,
                 }
             )
+            # Per-step Δ jitter so the metrics_curves panels have non-flat
+            # synthetic data (post-v13 the figure plots only evolving
+            # metrics, so a flat fixture would render six "not collected"
+            # annotations).
+            jitter = 1.0 if step == 50 else 1.15
             train_rows.append(
                 {
                     "step": step,
@@ -132,6 +144,12 @@ def _write_synthetic_runs(results_dir: Path) -> None:
                     "algorithm": "dqn",
                     "behaviour_policy": beh,
                     "seed": i,
+                    "delta_tv": dtv * jitter,
+                    "delta_kl": dtv * 1.2 * jitter,
+                    "delta_chi2": dtv * 0.9 * jitter,
+                    "delta_sup": dtv * 0.7 * jitter,
+                    "delta_mmd2": dtv * 0.6 * jitter,
+                    "delta_ks": dtv * 0.5 * jitter,
                     "min_propensity": mp,
                     "ess_ratio": ess,
                     "propensity_calibration_ece": 0.05,
@@ -201,3 +219,13 @@ def test_causal_metrics_grid_renders(tmp_path: Path) -> None:
     _write_synthetic_runs(results)
     make_causal_metrics_grid(results, out)
     assert (out / "causal_metrics_grid.pdf").exists()
+
+
+def test_static_diagnostics_renders(tmp_path: Path) -> None:
+    """v13: per-cell box plots of static offline-buffer diagnostics."""
+    results = tmp_path / "results"
+    out = tmp_path / "fig"
+    _write_synthetic_runs(results)
+    make_static_diagnostics(results, out)
+    assert (out / "static_diagnostics.pdf").exists()
+    assert (out / "static_diagnostics.png").exists()

@@ -21,11 +21,28 @@ map, then walk down the flowchart to a one-sentence diagnosis.
 
 ## Section 4 — Per-cell diagnostics
 
-4. **`metrics_curves_cell{1..4}.png`** — six diagnostic metrics over
-   training step, per cell.  Reveals which axes are doing work in each
-   regime instead of relying on the regression coefficients.
+4. **`metrics_curves_cell{1..4}.png`** — six Δ-divergence trajectories
+   per cell (TV, KL, χ², sup, MMD², KS).  Comprehensive view of all
+   evolving divergences.  Pre-v13 this figure plotted offline-buffer
+   properties that don't change during training; those moved to
+   ``static_diagnostics.pdf`` (figure 7 below) where a box plot is the
+   right idiom.
 5. **`gap_curves_cell{1..4}.png`** — divergence-family time-series per
-   cell.  Δ_TV / Δ_KL / Δ_χ² / Δ_sup over training.
+   cell.  Δ_TV / Δ_KL / Δ_χ² / Δ_sup over training.  The narrative
+   4-panel; ``metrics_curves`` is the comprehensive 6-panel.
+
+## Section 4 — Supplementary diagnostics
+
+7. **`static_diagnostics.pdf`** — six box plots of *static* offline-buffer
+   diagnostics (``min_propensity``, ``ess_ratio``,
+   ``coverage_ess_histogram``, ``coverage_action_freq_min``,
+   ``propensity_calibration_ece``, ``bound_width_mean``), one box per
+   cell.  These metrics describe the offline dataset, not the trained
+   policy, so they're the same value at every checkpoint within a run —
+   the cross-run variation only shows up across runs (one box per cell)
+   or across regimes.  Use this when reading the dataset's coverage /
+   identifiability properties; use ``metrics_curves`` and ``gap_curves``
+   when reading the trained policy's behaviour.
 
 ## Section 4 — Robustness and stratification
 

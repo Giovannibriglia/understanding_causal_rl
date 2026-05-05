@@ -1,23 +1,32 @@
-"""Per-cell time-series of *diagnostic* metrics over training.
+"""Per-cell time-series of the six Δ-divergence variants over training.
 
-Counterpart to ``gap_curves`` which plots the divergence family
-(delta_tv, delta_kl, delta_chi2, delta_sup) per cell over training step.
-This module plots the *coverage* and *causal-RL* diagnostics — the
-metrics that exist in every CSV but had zero plot references prior to
-v11.
+This module plots the *evolving* divergence family — the metrics that
+genuinely change with the trained policy's visit distribution.  Pre-v13
+this file plotted offline-buffer properties (min_propensity, ess_ratio,
+ECE, ...) which are computed once at buffer collection time and
+broadcast unchanged to every checkpoint, so the curves were flat by
+construction.  v13 moved those static metrics to ``static_diagnostics``
+(the right idiom for a per-run summary) and replaced the time-series
+content with the six divergences.
 
 Six subplots per cell:
 
-  - min_propensity
-  - ess_ratio
-  - propensity_calibration_ece
-  - pi_b_recovery_kl
-  - cond_mi_r_z_given_sa
-  - bound_width_mean
+  - delta_tv (paper's primary metric)
+  - delta_kl
+  - delta_chi2
+  - delta_sup
+  - delta_mmd2  (NEW visible plot post-v13; previously zero plot refs)
+  - delta_ks    (NEW visible plot post-v13; previously zero plot refs)
+
+Scope distinction with ``gap_curves_cell{N}.png``:
+
+  - ``gap_curves`` — focused 4-panel of the paper's headline divergences
+    (TV, KL, χ², sup).  The narrative figure.
+  - ``metrics_curves`` (this module) — comprehensive 6-panel covering
+    *all* divergences including MMD² and KS.  The robustness panel.
 
 One line per (algorithm, behaviour); shaded band is the seed-stratified
-inter-quartile range.  When a metric is missing from the CSV (e.g.
-``cond_mi_r_z_given_sa`` is NaN in cells without exposed Z), the
+inter-quartile range.  When a metric is missing from the CSV the
 corresponding subplot shows a "not collected" annotation rather than
 silently rendering a flat zero line.
 """
@@ -34,12 +43,12 @@ import numpy as np
 from causal_rl.plotting.style import apply_style
 
 DIAGNOSTIC_COLS: tuple[tuple[str, str], ...] = (
-    ("min_propensity", "min_propensity"),
-    ("ess_ratio", "ESS / N"),
-    ("propensity_calibration_ece", "ECE (π_b model)"),
-    ("pi_b_recovery_kl", "KL(true ‖ pred π_b)"),
-    ("cond_mi_r_z_given_sa", r"$I(R; Z \mid S, A)$"),
-    ("bound_width_mean", "mean bound width"),
+    ("delta_tv", r"$\widehat{\Delta}_{\mathrm{TV}}$"),
+    ("delta_kl", r"$\widehat{\Delta}_{\mathrm{KL}}$"),
+    ("delta_chi2", r"$\widehat{\Delta}_{\chi^2}$"),
+    ("delta_sup", r"$\widehat{\Delta}_{\sup}$"),
+    ("delta_mmd2", r"$\widehat{\Delta}_{\mathrm{MMD}^2}$"),
+    ("delta_ks", r"$\widehat{\Delta}_{\mathrm{KS}}$"),
 )
 
 
@@ -176,7 +185,7 @@ def make_metrics_curves(
                 frameon=False,
                 fontsize=7,
             )
-        fig.suptitle(f"Diagnostic metrics over training, cell {cell}")
+        fig.suptitle(rf"$\Delta$-divergence trajectories, cell {cell}")
         fig.tight_layout(rect=(0, 0.03, 1, 0.97))
         pdf = output_dir / f"metrics_curves_cell{cell}.pdf"
         png = output_dir / f"metrics_curves_cell{cell}.png"

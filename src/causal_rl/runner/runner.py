@@ -1112,13 +1112,22 @@ class BenchmarkRunner:
             n_action_restriction_steps=self.config.n_action_restriction_steps,
         )
         self._compute_bound_metrics(buffer.action[: buffer.size], buffer.reward[: buffer.size])
-        if (not self.cell_cfg.pi_b_known) and self.env.is_discrete_action and buffer.size > 0:
-            # π_b is hidden — fit a propensity model and use its log-prob of
-            # the action TAKEN to seed coverage metrics.  Without this, the
-            # buffer's behaviour_logprob is all-zeros and min_propensity
-            # collapses to exp(0) = 1.0 (degenerate).
+        if self.env.is_discrete_action and buffer.size > 0:
+            # v13: fit the propensity model unconditionally.  Pre-v13 this
+            # branch was gated on ``not pi_b_known``, which left
+            # ``target_support_overlap`` un-populated in cells 1/3 (it
+            # depends on ``self._propensity_model is not None``).  With
+            # the gate dropped:
+            # * In ``pi_b_known=False`` cells the model fits to recover
+            #   the unknown true π_b; ``pi_b_recovery_kl`` is large.
+            # * In ``pi_b_known=True`` cells the model fits the known
+            #   true π_b; ``pi_b_recovery_kl`` measures fitting noise
+            #   (small but non-zero).
+            # ``target_support_overlap`` populates in all four cells.
             model: PropensityModel = fit_propensity_model(
-                buffer.obs[: buffer.size], buffer.action[: buffer.size], n_actions=8
+                buffer.obs[: buffer.size],
+                buffer.action[: buffer.size],
+                n_actions=self._n_actions or 8,
             )
             self._propensity_model = model
             with torch.no_grad():
@@ -1160,13 +1169,16 @@ class BenchmarkRunner:
             else:
                 self._pi_b_recovery_kl = float("nan")
         elif buffer.behaviour_logprob is not None and buffer.size > 0:
+            # Continuous-action fallback.  Discrete-action runs flow through
+            # the propensity-fit branch above; this branch handles
+            # ``continuous-ward`` and similar where the propensity model
+            # fitter (which assumes a discrete action softmax) doesn't apply.
             self._compute_coverage_metrics(
                 buffer.behaviour_logprob[: buffer.size],
                 actions=buffer.action[: buffer.size].view(-1),
             )
             self._propensity_calibration_ece = float("nan")
-            # When π_b is fully known the recovery KL is by definition zero.
-            self._pi_b_recovery_kl = 0.0
+            self._pi_b_recovery_kl = float("nan")
         # v8 metrics — backdoor residual, target overlap, conditional MI.
         if buffer.size > 0:
             try:

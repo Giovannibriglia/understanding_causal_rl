@@ -26,6 +26,7 @@ from causal_rl.plotting.learning_curves import make_learning_curves  # noqa: E40
 from causal_rl.plotting.metrics_curves import make_metrics_curves  # noqa: E402
 from causal_rl.plotting.regime_map import make_regime_map  # noqa: E402
 from causal_rl.plotting.sample_sweep import make_sample_sweep  # noqa: E402
+from causal_rl.plotting.static_diagnostics import make_static_diagnostics  # noqa: E402
 from causal_rl.plotting.summary_tables import make_summary_tables  # noqa: E402
 
 
@@ -54,6 +55,7 @@ def main() -> None:
         make_metrics_curves(args.results, out, env_prefix=prefix)
         make_divergence_panel(args.results, out, env_prefix=prefix)
         make_causal_metrics_grid(args.results, out, env_prefix=prefix)
+        make_static_diagnostics(args.results, out, env_prefix=prefix)
         make_diagnosis_flowchart(out)
         # ---- existing supporting figures ----
         make_learning_curves(args.results, out, env_prefix=prefix)
