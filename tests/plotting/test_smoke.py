@@ -147,7 +147,11 @@ def _write_bias_sweep_data(results_dir: Path) -> None:
                 "cell": cell,
                 "env_name": "tabular-sepsis-v0",
                 "algorithm": "dqn",
-                "behaviour_policy": "uniform",
+                # v15: bias_sweep filters out uniform-behaviour rows
+                # (UniformExplorer has no bias_strength axis — see
+                # docs/v15_bias_sweep_investigation.md), so the fixture
+                # has to use a behaviour that does take bs.
+                "behaviour_policy": "reward_aligned",
                 "seed": 0,
                 "eval_return_mean": 0.5 - 0.1 * bs,
                 "eval_oracle_return_mean": 0.8,
