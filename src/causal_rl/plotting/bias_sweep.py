@@ -45,6 +45,17 @@ def make_bias_sweep(
         if not rows:
             continue
         last = rows[-1]
+        # v15: drop uniform-behaviour runs.  ``UniformExplorer`` has no
+        # ``bias_strength`` parameter and reports 1.0 for every run
+        # regardless of the matrix sweep value, so all uniform runs
+        # land in the bs=1.0 bucket — they pull that bucket's mean
+        # toward "uniform-like" (high ESS, high min_propensity) and
+        # produce a visible jump-back at bs=1.0 in the id / partial_id
+        # strata.  Uniform doesn't have a meaningful bias_strength axis
+        # in the first place; plotting it against a swept bs is a
+        # category error.  See ``docs/v15_bias_sweep_investigation.md``.
+        if str(last.get("behaviour_policy", "")) == "uniform":
+            continue
         try:
             bias_strength = float(last.get("bias_strength", 1.0))
             id_status = str(last.get("id_status", "non_id"))
@@ -129,6 +140,19 @@ def make_bias_sweep(
             fontsize=9,
         )
     fig.suptitle("Bias / coverage sweep, stratified by identifiability status", fontsize=11)
+    # v15: caption note explaining why uniform runs are omitted.  See
+    # docs/v15_bias_sweep_investigation.md for the full rationale.
+    fig.text(
+        0.5,
+        -0.07,
+        "Uniform-behaviour runs are omitted: bias_strength is not "
+        "meaningful under a uniform behaviour policy.",
+        ha="center",
+        va="top",
+        fontsize=8,
+        color="#555555",
+        style="italic",
+    )
     fig.tight_layout(rect=(0, 0.05, 1, 0.96))
     fig.savefig(output_dir / "bias_sweep.pdf", bbox_inches="tight")
     plt.close(fig)
