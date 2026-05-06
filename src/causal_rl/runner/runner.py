@@ -1031,7 +1031,15 @@ class BenchmarkRunner:
                 self._compute_coverage_metrics(
                     logp_batch.view(-1), actions=action_batch.view(-1)
                 )
-                self._compute_bound_metrics(action_batch, reward_batch)
+                # v18: bound metrics are read only by ``_log_train`` and
+                # ``_log_eval``, both gated to checkpoints.  Computing
+                # them at every update step is pure waste — the dict
+                # gets overwritten before any consumer reads it.
+                # Compute only when at least one of the log branches
+                # will fire this iteration.  See
+                # ``docs/v18_bound_metric_gating.md``.
+                if tick in train_ticks or tick in eval_ticks:
+                    self._compute_bound_metrics(action_batch, reward_batch)
                 # v8: extra metrics on the rollout buffer.  Latent_z is read
                 # from the most recent ``info`` dict when expose_z=True.
                 latent_z = None
