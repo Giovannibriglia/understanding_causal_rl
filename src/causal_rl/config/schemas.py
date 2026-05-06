@@ -62,6 +62,13 @@ class RunConfigModel(BaseModel):
     # perturbed-return mean.  3 × 16 = 48 trajectories is sufficient at
     # smoke budgets; bump to 5+ for paper runs by overriding in the YAML.
     n_eval_episodes: int = Field(3, ge=1)
+    # Diagnostic budget knobs.  Defaults match the long-standing
+    # ``RunnerConfig`` defaults (200/200) so configs without these keys
+    # behave exactly as before.  Reduce for runs where the diagnostic
+    # cost dominates wall time (e.g. bandit configs where the learner
+    # is essentially free).
+    n_bootstrap: int = Field(200, ge=0)
+    n_samples_gap: int = Field(200, ge=1)
     # Optional: trim the perturbation grid for smoke configs.  None ⇒ full
     # grid; <= 0 also means full.  See ``runner._evaluate_perturbations``.
     perturbation_grid_size: int | None = None
@@ -102,6 +109,12 @@ class MatrixConfig(BaseModel):
     n_envs: int = 64
     eval_n_envs: int | None = None
     n_eval_episodes: int = Field(3, ge=1)
+    # Diagnostic budget knobs.  Defaults match the long-standing
+    # ``RunnerConfig`` defaults so omitting these keys preserves
+    # legacy behaviour.  Bandit configs typically override to a
+    # cheaper budget — see ``configs/paper_bandit.yaml``.
+    n_bootstrap: int = Field(200, ge=0)
+    n_samples_gap: int = Field(200, ge=1)
     # Optional: trim the perturbation grid for smoke configs.
     perturbation_grid_size: int | None = None
     eval_perturbations: bool = True
