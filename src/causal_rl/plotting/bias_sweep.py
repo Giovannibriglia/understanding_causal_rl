@@ -80,6 +80,86 @@ def make_bias_sweep(
     if not data:
         return
 
+    # v16: detect the degenerate single-bias_strength case and render an
+    # honest figure.  The line-plot path below asserts trends in its
+    # titles ("Δ_TV rises with bias_strength", etc.); when only one
+    # bias_strength value is present in the manifest those trends are
+    # not depicted, so the line-plot output ends up misleading.  The
+    # single-bs branch swaps the lines for stratified bar charts at the
+    # one bias_strength, drops the trend framing, and adds a banner
+    # noting that a sweep is required to recover the trend figure.
+    all_bs = sorted({bs for by_bs in data.values() for bs in by_bs.keys()})
+    single_bs = len(all_bs) == 1
+
+    if single_bs:
+        bs_value = all_bs[0]
+        statuses_present = [s for s in ("id", "partial_id", "non_id") if s in data]
+        x_positions = np.arange(len(statuses_present))
+
+        fig, axes = plt.subplots(1, 4, figsize=(16, 4), sharex=False)
+        ax_tv, ax_ess, ax_prop, ax_gap = axes
+
+        def _means(metric: str) -> list[float]:
+            out: list[float] = []
+            for status in statuses_present:
+                vals = data[status].get(bs_value, {}).get(metric, [])
+                out.append(float(np.mean(vals)) if vals else 0.0)
+            return out
+
+        colors = [_ID_STATUS_COLORS.get(s, "gray") for s in statuses_present]
+        for ax, metric, ylabel in (
+            (ax_tv, "delta_tv", r"$\widehat{\Delta}_{\mathrm{TV}}$"),
+            (ax_ess, "ess_ratio", "ESS / N"),
+            (ax_prop, "min_propensity", "min propensity"),
+            (ax_gap, "gap", "Return gap to oracle"),
+        ):
+            means = _means(metric)
+            # ESS / min_propensity preserve their log-y scale.  Floor
+            # at 1e-6 so log scale handles zero-stratum cases.
+            if metric in ("ess_ratio", "min_propensity"):
+                means = [max(1e-6, m) for m in means]
+            ax.bar(
+                x_positions,
+                means,
+                color=colors,
+                edgecolor="black",
+                linewidth=0.5,
+            )
+            ax.set_xticks(x_positions)
+            ax.set_xticklabels(statuses_present)
+            ax.set_xlabel("id_status")
+            ax.set_ylabel(ylabel)
+
+        ax_ess.set_yscale("log")
+        ax_prop.set_yscale("log")
+
+        ax_tv.set_title(rf"$\widehat{{\Delta}}_{{\mathrm{{TV}}}}$ at bs={bs_value}, by id_status")
+        ax_ess.set_title(f"ESS / N at bs={bs_value}, by id_status")
+        ax_prop.set_title(f"min propensity at bs={bs_value}, by id_status")
+        ax_gap.set_title(f"Return gap at bs={bs_value}, by id_status")
+
+        # Single-bs banner replaces the multi-bs uniform-omission
+        # caption.  Both share the same fig.text slot at y=-0.07.
+        fig.suptitle(
+            "Bias / coverage sweep, stratified by identifiability status",
+            fontsize=11,
+        )
+        fig.text(
+            0.5,
+            -0.07,
+            "Single bias_strength in this run; bias_strength trend not "
+            "depicted.  Sweep bias_strengths to recover the trend figure.",
+            ha="center",
+            va="top",
+            fontsize=8,
+            color="#555555",
+            style="italic",
+        )
+        fig.tight_layout(rect=(0, 0.05, 1, 0.96))
+        fig.savefig(output_dir / "bias_sweep.pdf", bbox_inches="tight")
+        plt.close(fig)
+        return
+
     fig, axes = plt.subplots(1, 4, figsize=(16, 4), sharex=True)
     ax_tv, ax_ess, ax_prop, ax_gap = axes
 
