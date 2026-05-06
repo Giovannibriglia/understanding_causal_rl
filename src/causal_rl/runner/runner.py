@@ -476,7 +476,19 @@ class BenchmarkRunner:
             **{f"bound_upper_a{a}": float("nan") for a in range(n_actions)},
             **{f"obs_arm_count_a{a}": 0 for a in range(n_actions)},
         }
-        if not self.env.is_discrete_action or actions.numel() == 0:
+        # v18: ``natural_bounds`` calls ``torch.quantile`` on the
+        # bootstrap replicate tensor, which errors on an empty input.
+        # Pre-v18 the hard-coded literal at line 490 masked this — now
+        # that the YAML knob plumbs through, an explicit
+        # ``n_bootstrap=0`` (legal per v17's ``Field(ge=0)``) reaches
+        # ``natural_bounds`` directly.  Treat zero budget as "diagnostic
+        # disabled" and emit the same NaN payload as the non-discrete
+        # branch below, keeping CSV column shape unchanged.
+        if (
+            not self.env.is_discrete_action
+            or actions.numel() == 0
+            or self._effective_n_bootstrap <= 0
+        ):
             self._bound_metrics = {
                 "bound_width_mean": float("nan"),
                 "bound_width_max": float("nan"),
@@ -487,7 +499,18 @@ class BenchmarkRunner:
             return
         acts = actions.view(-1).long()
         rewards_01 = ((rewards.view(-1).float() + 1.0) / 2.0).clamp(0.0, 1.0)
-        bounds = natural_bounds(acts, rewards_01, n_actions=n_actions, n_bootstrap=200)
+        # v18: respect the matrix-configured diagnostic budget.  The
+        # legacy hard-coded literal here ignored
+        # ``self.config.n_bootstrap`` (introduced as a YAML knob in v17)
+        # and the memory-safety clamp at ``__init__`` line 168.  Use
+        # ``self._effective_n_bootstrap`` so paper_bandit's reduced
+        # bootstrap budget actually takes effect at this site.
+        bounds = natural_bounds(
+            acts,
+            rewards_01,
+            n_actions=n_actions,
+            n_bootstrap=self._effective_n_bootstrap,
+        )
         widths = [r.upper - r.lower for r in bounds.values()]
         # Bareinboim's "informative" criterion: an arm's upper bound lies below
         # the best lower bound across arms (so the arm can be excluded as
@@ -1031,7 +1054,15 @@ class BenchmarkRunner:
                 self._compute_coverage_metrics(
                     logp_batch.view(-1), actions=action_batch.view(-1)
                 )
-                self._compute_bound_metrics(action_batch, reward_batch)
+                # v18: bound metrics are read only by ``_log_train`` and
+                # ``_log_eval``, both gated to checkpoints.  Computing
+                # them at every update step is pure waste — the dict
+                # gets overwritten before any consumer reads it.
+                # Compute only when at least one of the log branches
+                # will fire this iteration.  See
+                # ``docs/v18_bound_metric_gating.md``.
+                if tick in train_ticks or tick in eval_ticks:
+                    self._compute_bound_metrics(action_batch, reward_batch)
                 # v8: extra metrics on the rollout buffer.  Latent_z is read
                 # from the most recent ``info`` dict when expose_z=True.
                 latent_z = None
