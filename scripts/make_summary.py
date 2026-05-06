@@ -574,13 +574,17 @@ def make_summary(results_dir: Path, output_path: Path | None = None) -> Path:
             if group:
                 per_cell_per_algo[f"{cell}_{algo}"] = _group_summary(group)
 
+    # v16: skip empty (cell, env) groups instead of emitting
+    # ``{"eval_return_mean": null}`` placeholders.  Mirrors the
+    # ``per_cell_per_algo`` block above.  ``_ALL_ENVS`` still drives
+    # the iteration order so populated envs come out in the canonical
+    # tabular-then-continuous order.
     per_cell_per_env: dict[str, Any] = {}
     for cell in cells:
         for env in _ALL_ENVS:
             group = [r for r in runs if r["cell"] == cell and r["env"] == env]
-            per_cell_per_env[f"{cell}_{env}"] = (
-                _group_summary(group) if group else {"eval_return_mean": None}
-            )
+            if group:
+                per_cell_per_env[f"{cell}_{env}"] = _group_summary(group)
 
     # Per-horizon breakdown (only emitted when the manifest contains multiple
     # horizons, i.e. a horizon_sweep was active).
