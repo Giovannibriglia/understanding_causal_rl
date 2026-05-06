@@ -21,3 +21,12 @@ alpha_conf: 0.0
 alpha_conf_sweep: [0.0, 1.0, 2.0, 4.0]
 n_envs: 64
 eval_perturbations: false
+# v17: bandit diagnostic budget — the bootstrap and sample-count
+# defaults (200/200) are tuned for off-policy heavy-RL configs where
+# the diagnostic cost is amortised over expensive learner work.  For
+# bandits the learner is essentially free, so the diagnostic
+# dominates wall time; cutting the budget by ~4x reduces total
+# matrix runtime correspondingly.  CI widens by ~10%, which is
+# invisible at paper precision (10 seeds × 4 alpha × 4 algos).
+n_bootstrap: 50
+n_samples_gap: 100

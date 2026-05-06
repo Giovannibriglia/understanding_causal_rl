@@ -187,6 +187,10 @@ def _build_cmd(
         cmd.extend(["--eval-n-envs", str(matrix.eval_n_envs)])
     if getattr(matrix, "n_eval_episodes", None) is not None:
         cmd.extend(["--n-eval-episodes", str(matrix.n_eval_episodes)])
+    if getattr(matrix, "n_bootstrap", None) is not None:
+        cmd.extend(["--n-bootstrap", str(matrix.n_bootstrap)])
+    if getattr(matrix, "n_samples_gap", None) is not None:
+        cmd.extend(["--n-samples-gap", str(matrix.n_samples_gap)])
     if getattr(matrix, "perturbation_grid_size", None) is not None:
         cmd.extend(
             ["--perturbation-grid-size", str(matrix.perturbation_grid_size)]

@@ -40,6 +40,25 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-eval-episodes", type=int, default=3)
     parser.add_argument(
+        "--n-bootstrap",
+        type=int,
+        default=200,
+        help=(
+            "Bootstrap replicates for gap-metric CIs.  Default 200 matches the"
+            " long-standing RunnerConfig default; reduce (e.g. 50) for bandit"
+            " configs where the diagnostic dominates wall time."
+        ),
+    )
+    parser.add_argument(
+        "--n-samples-gap",
+        type=int,
+        default=200,
+        help=(
+            "Per-checkpoint Monte-Carlo sample count for gap-metric estimation."
+            "  Default 200; reduce for cheaper bandit diagnostics."
+        ),
+    )
+    parser.add_argument(
         "--perturbation-grid-size",
         type=int,
         default=None,
@@ -106,6 +125,8 @@ def main() -> None:
         bias_strength=args.bias_strength,
         oracle=args.oracle,
         n_eval_episodes=args.n_eval_episodes,
+        n_bootstrap=args.n_bootstrap,
+        n_samples_gap=args.n_samples_gap,
         perturbation_grid_size=args.perturbation_grid_size,
         eval_perturbations=args.eval_perturbations,
         forbidden_actions=tuple(args.forbidden_actions or ()),

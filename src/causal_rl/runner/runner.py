@@ -1087,7 +1087,15 @@ class BenchmarkRunner:
             if tick in eval_ticks:
                 eval_returns = self._evaluate_policy(seed=self.config.seed + tick + 10_000)
                 oracle_returns = self._evaluate_oracle(seed=self.config.seed + tick + 30_000)
-                gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + tick + 50_000)
+                if tick in train_ticks:
+                    # v17: train branch already computed gap metrics
+                    # this iteration; reuse to avoid the redundant call.
+                    # See ``docs/v17_gap_metric_dedup.md``.
+                    gap_metrics = self._last_gap_metrics
+                else:
+                    gap_metrics = self._evaluate_gap_metrics(
+                        seed=self.config.seed + tick + 50_000
+                    )
                 self._log_eval(
                     step=tick,
                     episode=episode,
@@ -1249,7 +1257,15 @@ class BenchmarkRunner:
             if step in eval_ticks:
                 eval_returns = self._evaluate_policy(seed=self.config.seed + step + 10_000)
                 oracle_returns = self._evaluate_oracle(seed=self.config.seed + step + 30_000)
-                gap_metrics = self._evaluate_gap_metrics(seed=self.config.seed + step + 50_000)
+                if step in train_ticks:
+                    # v17: train branch already computed gap metrics this
+                    # iteration; reuse to avoid the redundant call.  See
+                    # ``docs/v17_gap_metric_dedup.md``.
+                    gap_metrics = self._last_gap_metrics
+                else:
+                    gap_metrics = self._evaluate_gap_metrics(
+                        seed=self.config.seed + step + 50_000
+                    )
                 self._log_eval(
                     step=step,
                     episode=episode,
