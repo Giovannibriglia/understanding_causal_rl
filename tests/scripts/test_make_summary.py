@@ -202,6 +202,42 @@ def test_make_summary_per_cell_keys(fake_results: Path) -> None:
         assert "id_statuses" in cell_data
 
 
+def test_per_cell_per_env_skips_empty_envs(fake_results: Path) -> None:
+    """v16: ``per_cell_per_env`` no longer emits placeholder entries for
+    envs that produced zero runs.
+
+    Pre-v16, the block was driven by an exhaustive ``_ALL_ENVS`` loop
+    and emitted ``{"eval_return_mean": null}`` for every (cell, env)
+    pair without runs.  v16 mirrors the ``per_cell_per_algo`` block
+    above and skips empty groups entirely.
+
+    The fixture is tabular-only (no ``continuous-ward-v0`` runs), so
+    this test exercises the hygiene contract.
+    """
+    make_summary(fake_results)
+    data = json.loads((fake_results / "summary.json").read_text())
+    per_cell_per_env = data["per_cell_per_env"]
+    # No continuous-ward placeholder entries.
+    assert not any(
+        key.endswith("_continuous-ward-v0") for key in per_cell_per_env
+    ), (
+        f"per_cell_per_env should skip empty envs; got "
+        f"{sorted(per_cell_per_env.keys())}"
+    )
+    # All four tabular-sepsis entries are present and populated.
+    for cell in (1, 2, 3, 4):
+        key = f"{cell}_tabular-sepsis-v0"
+        assert key in per_cell_per_env, (
+            f"populated env entry {key!r} missing from per_cell_per_env"
+        )
+        entry = per_cell_per_env[key]
+        # ``eval_return_mean`` must be a real number, not the pre-v16
+        # placeholder ``None``.
+        assert entry.get("eval_return_mean") is not None, (
+            f"{key} eval_return_mean is None; placeholder leaked"
+        )
+
+
 def test_make_summary_claims_present(fake_results: Path) -> None:
     make_summary(fake_results)
     data = json.loads((fake_results / "summary.json").read_text())

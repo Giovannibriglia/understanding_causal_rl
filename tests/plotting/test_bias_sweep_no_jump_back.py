@@ -213,3 +213,105 @@ def test_make_bias_sweep_renders_after_filter(tmp_path: Path) -> None:
     _build_synthetic_smoke_v8_tree(results)
     make_bias_sweep(results, out)
     assert (out / "bias_sweep.pdf").exists()
+
+
+# ---------------------------------------------------------------------------
+# v16: degenerate single-bias_strength path
+# ---------------------------------------------------------------------------
+
+
+def _build_single_bs_tree(results: Path, *, bs: float = 1.0) -> None:
+    """Synthetic smoke fixture for the single-bs path.
+
+    One ``reward_aligned`` run per (cell × id_status) at the requested
+    ``bs``.  Mirrors what the ``coverage_stress`` matrix produces when
+    ``bias_strengths`` is set to ``[1.0]`` only.
+    """
+    for cell, status in ((1, "id"), (2, "id"), (3, "partial_id"), (4, "non_id")):
+        _write_run(
+            results / f"ra_c{cell}_bs{bs}",
+            [
+                _row(
+                    cell=cell,
+                    behaviour="reward_aligned",
+                    bs=bs,
+                    min_prop=0.05 + 0.01 * cell,
+                    ess=0.80 + 0.04 * cell,
+                    id_status=status,
+                )
+            ],
+        )
+
+
+def test_single_bias_strength_renders_without_error(tmp_path: Path) -> None:
+    """v16: a manifest with a single ``bias_strength`` value renders
+    a non-empty PDF.
+
+    The pre-v16 line-plot path produced a degenerate figure with three
+    points at x=1.0 and titles asserting trends not depicted.  The
+    v16 single-bs branch swaps to a stratified bar chart and rewrites
+    the titles; this test just confirms the file is produced and
+    larger than a blank-PDF baseline.
+    """
+    results = tmp_path / "results"
+    out = tmp_path / "fig"
+    _build_single_bs_tree(results, bs=1.0)
+    make_bias_sweep(results, out)
+    pdf = out / "bias_sweep.pdf"
+    assert pdf.exists(), "bias_sweep.pdf was not written"
+    # A blank matplotlib PDF is ~700 bytes; a populated one is several KB.
+    assert pdf.stat().st_size > 1024, (
+        f"bias_sweep.pdf is suspiciously small ({pdf.stat().st_size} bytes); "
+        "fixture may not have produced a real figure"
+    )
+
+
+def test_single_bias_strength_does_not_claim_trend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """v16: on a single-bs manifest, the figure must not assert
+    "rises with bias_strength" / "falls with bias_strength" trends
+    that the data does not depict.
+
+    Inspects the rendered figure's axis titles via a monkeypatched
+    ``plt.close`` that records the figure before disposing of it.
+    Production code is unchanged; the patch is purely a test hook.
+    """
+    import matplotlib.pyplot as plt
+
+    captured: list = []
+
+    def _record_close(fig=None):
+        if fig is not None and fig not in captured:
+            captured.append(fig)
+
+    monkeypatch.setattr(plt, "close", _record_close)
+
+    results = tmp_path / "results"
+    out = tmp_path / "fig"
+    _build_single_bs_tree(results, bs=1.0)
+    make_bias_sweep(results, out)
+
+    assert captured, "no figure was passed to plt.close; test hook didn't fire"
+    fig = captured[-1]
+    titles = [ax.get_title() for ax in fig.axes]
+    fig_texts = [t.get_text() for t in fig.texts]
+    suptitle = fig._suptitle.get_text() if fig._suptitle is not None else ""
+    all_title_text = "\n".join([*titles, *fig_texts, suptitle])
+
+    assert "rises with bias_strength" not in all_title_text, (
+        "single-bs figure asserts a trend not depicted in the data; "
+        f"titles={titles!r}, texts={fig_texts!r}"
+    )
+    assert "falls with bias_strength" not in all_title_text, (
+        "single-bs figure asserts a trend not depicted in the data; "
+        f"titles={titles!r}, texts={fig_texts!r}"
+    )
+    assert any("by id_status" in t for t in titles), (
+        "expected at least one axis title to describe the stratification "
+        f"as 'by id_status'; got titles={titles!r}"
+    )
+
+    # Drain captured figures so they don't leak into other tests.
+    for f in captured:
+        plt.close(f)  # uses the original after monkeypatch teardown
