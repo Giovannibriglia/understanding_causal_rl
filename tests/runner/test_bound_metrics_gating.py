@@ -27,6 +27,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from causal_rl.runner import runner as runner_mod
 from causal_rl.runner.runner import BenchmarkRunner, RunnerConfig
 from causal_rl.runner.scheduling import checkpoint_ticks
 
@@ -136,4 +137,46 @@ def test_bound_metrics_computed_when_train_or_eval_tick_fires(
         f"expected {expected_online_calls} bound-metric calls "
         f"(|train ∪ eval| over {sorted(union)}); got "
         f"{wrapped.call_count}"
+    )
+
+
+def test_natural_bounds_uses_configured_n_bootstrap(tmp_path: Path) -> None:
+    """v18 Phase 2: ``_compute_bound_metrics`` calls ``natural_bounds``
+    with ``self._effective_n_bootstrap`` instead of a hard-coded 200.
+
+    Pre-v18 line 490 read ``n_bootstrap=200`` literally, ignoring the
+    ``RunnerConfig.n_bootstrap`` knob introduced in v17 and the
+    memory-safety clamp computed at ``__init__``.  After v18, a YAML
+    or CLI override propagates all the way to the bootstrap call.
+
+    The fixture sets ``n_bootstrap=7`` (well below the clamp threshold
+    so ``_effective_n_bootstrap`` equals the config value).  We patch
+    ``natural_bounds`` at the module level, run the runner, and assert
+    every observed call passed ``n_bootstrap=7``.
+    """
+    cfg = _bandit_cfg(tmp_path / "budget", n_train=2, n_eval=2)
+    cfg = RunnerConfig(**{**cfg.__dict__, "n_bootstrap": 7})
+
+    runner = BenchmarkRunner(cfg)
+    assert runner._effective_n_bootstrap == 7, (
+        "fixture broken: budget should not trip the memory-safety clamp"
+    )
+
+    real_natural_bounds = runner_mod.natural_bounds
+    captured_kwargs: list[int] = []
+
+    def _spy(*args: object, **kwargs: object) -> object:
+        captured_kwargs.append(int(kwargs["n_bootstrap"]))
+        return real_natural_bounds(*args, **kwargs)
+
+    with patch.object(runner_mod, "natural_bounds", side_effect=_spy):
+        runner.run()
+
+    assert captured_kwargs, (
+        "natural_bounds was never called — fixture should exercise the "
+        "discrete-action bound-metric path"
+    )
+    assert all(nb == 7 for nb in captured_kwargs), (
+        f"expected every natural_bounds call to receive n_bootstrap=7; "
+        f"got {captured_kwargs}"
     )
