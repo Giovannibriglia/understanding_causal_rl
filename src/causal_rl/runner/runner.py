@@ -632,7 +632,22 @@ class BenchmarkRunner:
         reward_probs = eval_env.reward_probs
         n_states, n_actions, _ = transition.shape
         horizon = int(eval_env.horizon)
-        expected_reward = reward_probs[:, :, 1] - reward_probs[:, :, 0]
+        # v19: when Z is hidden the oracle cannot condition on the full
+        # latent state.  Marginalise the per-state expected reward
+        # uniformly over Z ∈ {0, 1} so the oracle's reward function
+        # matches what the agent's environment actually presents.
+        # Pre-v19 the oracle in C3/C4 read the per-Z expected reward
+        # directly, giving a strictly stronger oracle than the agent
+        # could possibly match.  See ``docs/v19_bandit_cell_collapse.md``.
+        if eval_env.config.expose_z:
+            expected_reward = reward_probs[:, :, 1] - reward_probs[:, :, 0]
+        else:
+            from causal_rl.envs.tabular_sepsis import OBS_STATES
+            rp_z0 = reward_probs[:OBS_STATES]
+            rp_z1 = reward_probs[OBS_STATES:]
+            rp_marg = 0.5 * (rp_z0 + rp_z1)
+            expected_per_obs = rp_marg[:, :, 1] - rp_marg[:, :, 0]
+            expected_reward = torch.cat([expected_per_obs, expected_per_obs], dim=0)
         values = torch.zeros((horizon + 1, n_states), device=transition.device)
         policy = torch.zeros((horizon + 1, n_states), dtype=torch.long, device=transition.device)
         for steps_left in range(1, horizon + 1):
@@ -645,11 +660,26 @@ class BenchmarkRunner:
     def _oracle_action(self, eval_env: CausalEnv, obs: torch.Tensor) -> torch.Tensor:
         # Discrete / tabular oracle (exact DP)
         if eval_env.is_discrete_action:
-            if isinstance(eval_env, TabularSepsisEnv):
-                policy = self._build_tabular_oracle_policy(eval_env)
-                latent_state = eval_env._latent_state.to(torch.long)
-                step_count = eval_env._step_count.to(torch.long)
-                steps_left = (eval_env.horizon - step_count).clamp(min=1, max=eval_env.horizon)
+            # v19: BanditView wraps TabularSepsisEnv; walk through the
+            # wrapper layers to find the tabular env so the analytical
+            # oracle works for bandits too.  Pre-v19 the bandit oracle
+            # fell through to ``algo.select_action(deterministic=True)``
+            # — i.e. the agent graded itself, producing nonsensical
+            # negative ``gap_to_oracle`` values.
+            tab_env: CausalEnv | None = eval_env
+            while tab_env is not None and not isinstance(tab_env, TabularSepsisEnv):
+                inner = getattr(tab_env, "_env", None)
+                if inner is None or inner is tab_env:
+                    tab_env = None
+                    break
+                tab_env = inner
+            if isinstance(tab_env, TabularSepsisEnv):
+                policy = self._build_tabular_oracle_policy(tab_env)
+                latent_state = tab_env._latent_state.to(torch.long)
+                step_count = tab_env._step_count.to(torch.long)
+                steps_left = (tab_env.horizon - step_count).clamp(
+                    min=1, max=tab_env.horizon
+                )
                 action = policy[steps_left, latent_state]
                 return action.unsqueeze(-1)
             # fallback to learned policy for other discrete envs
