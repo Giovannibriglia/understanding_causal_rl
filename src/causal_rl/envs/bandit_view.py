@@ -19,20 +19,40 @@ class BanditView(CausalEnv):
         self.gamma = env.gamma
         self.n_envs = env.n_envs
 
-        # Build context pool: reset env once to get the obs shape right
+        # Initialise so paths that construct the bandit without an explicit
+        # reset still see a valid obs/info (e.g. metric plugins, the runner's
+        # ``__init__``-time env probing).  v20: the previous implementation
+        # also stashed a permuted ``_context_pool`` here, but that attribute
+        # was never read anywhere in the codebase and only existed to support
+        # the (incorrect) permutation in ``reset``.
         obs, info = env.reset(seed=0)
-        self._context_pool: Tensor = obs  # shape (n_envs, *obs_shape)
         self._current_obs: Tensor = obs
         self._current_info: dict[str, Tensor] = info
 
     def reset(self, seed: int | None = None) -> tuple[Tensor, dict[str, Tensor]]:
+        """Reset the inner env and return its obs/info verbatim.
+
+        v20: the previous implementation permuted the inner env's obs pool
+        via ``obs[idx]`` where ``idx`` was a random sample of size
+        ``n_envs``.  But ``BanditView.step`` calls
+        ``self._env.do_reward(action)``, which indexes the inner env's
+        un-permuted ``_latent_state`` — so the reward at env position ``i``
+        was being computed for state ``_latent_state[i]`` even though the
+        agent at position ``i`` had just observed an obs corresponding to
+        state ``_latent_state[idx[i]]``.  That break in state-obs alignment
+        propagated to the v19 analytical oracle: the runner reads
+        ``inner._latent_state[i]`` to pick the optimal action, but the
+        agent's policy was trained on (and acted from) obs corresponding
+        to a different state — producing a systematic gap between the
+        agent's experience and the oracle's reward function.
+
+        The permuted ``_context_pool`` was unused downstream
+        (``grep -rn _context_pool src/ tests/`` finds only the assignment
+        site), so dropping the permutation has no other observable effect.
+        """
         obs, info = self._env.reset(seed=seed)
-        n = obs.shape[0]
-        if seed is not None:
-            torch.manual_seed(seed)
-        idx = torch.randint(0, n, (self.n_envs,), device=obs.device)
-        self._current_obs = obs[idx]
-        self._current_info = {k: v[idx] if v.shape[0] == n else v for k, v in info.items()}
+        self._current_obs = obs
+        self._current_info = info
         return self._current_obs, self._current_info
 
     def step(self, action: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, dict[str, Tensor]]:
