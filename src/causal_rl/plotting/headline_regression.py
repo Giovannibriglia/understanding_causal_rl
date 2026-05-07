@@ -202,6 +202,33 @@ def _safe_cv_r2(
     return float(np.mean(scores))
 
 
+def _select_divergence_axis(
+    X_raw: np.ndarray[Any, Any], feature_cols: list[str]
+) -> tuple[np.ndarray[Any, Any], str] | None:
+    """Pick the x-axis tensor and label for ``headline_pure_divergence.pdf``.
+
+    v20: pre-v20 the figure required *both* ``delta_tv`` and ``D_env_KS``
+    to be in ``feature_cols``.  When ``D_env_KS`` is dropped as a constant
+    feature (which happens whenever ``eval_perturbations=false``, e.g.
+    every bandit run), the figure rendered with empty axes.  Empty
+    figures shouldn't ship; the figure's purpose ("pure divergence
+    predictor") is preserved by plotting whichever divergence column
+    is available.
+
+    Returns ``(combined_x, x_label)`` or ``None`` if neither divergence
+    column is present.
+    """
+    div_col = feature_cols.index("delta_tv") if "delta_tv" in feature_cols else -1
+    denv_col = feature_cols.index("D_env_KS") if "D_env_KS" in feature_cols else -1
+    if div_col < 0 and denv_col < 0:
+        return None
+    if div_col >= 0 and denv_col >= 0:
+        return X_raw[:, div_col] + X_raw[:, denv_col], "Δ_TV + D_env_KS"
+    if div_col >= 0:
+        return X_raw[:, div_col], "Δ_TV"
+    return X_raw[:, denv_col], "D_env_KS"
+
+
 def _is_constant(column: np.ndarray[Any, Any]) -> bool:
     """Constant means strictly identical (up to NaN) across samples."""
     finite = column[~np.isnan(column)] if column.dtype.kind == "f" else column
@@ -416,12 +443,17 @@ def make_headline_regression(
         writer.writeheader()
         writer.writerows(strat_r2_rows)
 
-    # Figure 1: G vs delta_tv + D_env_KS (per stratum)
-    fig1, ax1 = plt.subplots(figsize=(7, 5))
-    div_col = feature_cols.index("delta_tv") if "delta_tv" in feature_cols else -1
-    denv_col = feature_cols.index("D_env_KS") if "D_env_KS" in feature_cols else -1
-    if div_col >= 0 and denv_col >= 0:
-        combined_x = X_raw[:, div_col] + X_raw[:, denv_col]
+    # Figure 1: G vs divergence (per stratum).  See ``_select_divergence_axis``
+    # for the fallback contract.
+    div_axis = _select_divergence_axis(X_raw, feature_cols)
+    if div_axis is None:
+        print(
+            "[headline_regression] neither delta_tv nor D_env_KS is in "
+            "feature_cols — skipping headline_pure_divergence figure."
+        )
+    else:
+        combined_x, x_label = div_axis
+        fig1, ax1 = plt.subplots(figsize=(7, 5))
         for status in ["id", "partial_id", "non_id"]:
             mask = np.array([s == status for s in id_statuses])
             if not mask.any():
@@ -433,14 +465,13 @@ def make_headline_regression(
                 m, b = np.polyfit(xm, ym, 1)
                 xs = np.linspace(xm.min(), xm.max(), 50)
                 ax1.plot(xs, m * xs + b, color=color, linewidth=1.5)
-
-    ax1.set_xlabel("Δ_TV + D_env_KS")
-    ax1.set_ylabel("G (oracle gap)")
-    ax1.set_title(f"Pure divergence predictor  (overall R²={r2_cv:.2f})")
-    ax1.legend()
-    fig1.tight_layout()
-    fig1.savefig(output_dir / "headline_pure_divergence.pdf", bbox_inches="tight")
-    plt.close(fig1)
+        ax1.set_xlabel(x_label)
+        ax1.set_ylabel("G (oracle gap)")
+        ax1.set_title(f"Pure divergence predictor  (overall R²={r2_cv:.2f})")
+        ax1.legend()
+        fig1.tight_layout()
+        fig1.savefig(output_dir / "headline_pure_divergence.pdf", bbox_inches="tight")
+        plt.close(fig1)
 
     # Figure 2: G vs linear model prediction
     fig2, ax2 = plt.subplots(figsize=(6, 5))
