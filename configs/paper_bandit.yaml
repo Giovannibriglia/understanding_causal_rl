@@ -1,6 +1,23 @@
 # Bandit family (UCB / UCB± / RCT) — single-step episodes.
+#
+# v19 redesign: this matrix exercises the ``expose_z`` axis only.
+# Bandits are run with on-policy algorithms (UCB-family + RCT) which
+# do not use the off-policy IPW branch of the runner.  The
+# ``pi_b_known`` cell axis is therefore inert: C1≡C2 and C3≡C4 in
+# expectation.  The four-cell taxonomy is retained for matrix
+# uniformity with the sequential paper.yaml; results should be
+# interpreted as a 2-cell {expose_z=True, expose_z=False} comparison.
+# See ``docs/v19_bandit_cell_collapse.md``.
+#
+# v19 also fixes two bandit blockers (PR #25):
+#   * ``do_reward`` now honours ``expose_z`` (so C3/C4 actually see a
+#     marginalised reward distribution).
+#   * The oracle uses the analytical DP optimum (``BanditView`` is
+#     unwrapped) and marginalises Z when hidden, so ``gap_to_oracle``
+#     is well-defined and non-negative.
+#
 # total_runs: 4 cells × 1 env × 4 algos × 1 behaviour × 10 seeds × 4 alpha = 640
-# wall_time_estimate (n_workers=4): ~2.3 h  (eval_perturbations off)
+# wall_time_estimate (n_workers=4): ~1 h post-v17/v18 speedups
 cells: [1, 2, 3, 4]
 envs:
   - bandit-tabular-sepsis-v0
@@ -21,12 +38,18 @@ alpha_conf: 0.0
 alpha_conf_sweep: [0.0, 1.0, 2.0, 4.0]
 n_envs: 64
 eval_perturbations: false
-# v17: bandit diagnostic budget — the bootstrap and sample-count
-# defaults (200/200) are tuned for off-policy heavy-RL configs where
-# the diagnostic cost is amortised over expensive learner work.  For
-# bandits the learner is essentially free, so the diagnostic
-# dominates wall time; cutting the budget by ~4x reduces total
-# matrix runtime correspondingly.  CI widens by ~10%, which is
-# invisible at paper precision (10 seeds × 4 alpha × 4 algos).
+# v17: bandit diagnostic budget — the 200/200 default amortises well
+# over expensive learner work, but bandits make the diagnostic
+# dominate wall time.  Cutting to 50/100 reduces total matrix runtime
+# correspondingly with a ~10% CI widening (invisible at paper
+# precision, 10 seeds × 4 alpha × 4 algos).
 n_bootstrap: 50
 n_samples_gap: 100
+# v19: bump eval-episode count from the 3-default so eval-return
+# values are not coarsely lattice-quantised.  Pre-v19, returns at
+# horizon=1 took values in {-1, +1}, and with n_eval_episodes=3 the
+# per-cell eval-return mean was restricted to multiples of 1/24
+# (3 episodes × 8 envs / 1 step), collapsing the regression's
+# response variance.  At 50 episodes the lattice is fine enough for
+# divergence-based diagnostics to operate on a continuous response.
+n_eval_episodes: 50

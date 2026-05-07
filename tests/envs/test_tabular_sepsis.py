@@ -99,3 +99,56 @@ def test_tabular_sepsis_ci_returned() -> None:
     assert "delta_tv_ci_hi" in metrics
     assert metrics["delta_tv_ci_lo"] <= metrics["delta_tv"] + 1e-6
     assert metrics["delta_tv_ci_hi"] >= metrics["delta_tv"] - 1e-6
+
+
+def test_do_reward_marginalises_z_when_hidden() -> None:
+    """v19: ``do_reward`` honours ``expose_z`` like ``sample_interventional``.
+
+    With identical seeds across two envs whose only difference is ``expose_z``
+    (C1 vs C3), the per-action reward distribution should differ on at least
+    some entries — the C1 env conditions on the full latent state, the C3 env
+    marginalises uniformly over Z.  Pre-v19 the two were bit-identical (both
+    paths read ``reward_probs[self._latent_state, a]`` directly).
+    """
+    env_c1 = TabularSepsisEnv(cell=1, n_envs=64, device="cpu", alpha_conf=0.0)
+    env_c3 = TabularSepsisEnv(cell=3, n_envs=64, device="cpu", alpha_conf=0.0)
+    env_c1.reset(seed=0)
+    env_c3.reset(seed=0)
+    assert torch.equal(env_c1._latent_state, env_c3._latent_state), (
+        "fixture broken: same seed should produce identical _latent_state"
+    )
+    action = torch.randint(0, 8, (64, 1))
+    p_c1 = env_c1.do_reward(action)
+    p_c3 = env_c3.do_reward(action)
+    # The marginalisation does not move *every* entry (some latent states
+    # have reward_probs[s_obs] ≈ reward_probs[OBS_STATES + s_obs] by
+    # coincidence).  Asserting that the maximum elementwise gap exceeds
+    # 1e-3 is enough to distinguish the marginalised and conditional paths.
+    max_gap = (p_c1 - p_c3).abs().max().item()
+    assert max_gap > 1e-3, (
+        f"do_reward returned identical distributions across C1/C3 — "
+        f"v19 marginalisation appears not to be active.  max gap: {max_gap:.6f}"
+    )
+
+
+def test_do_reward_matches_sample_interventional_in_expectation() -> None:
+    """v19: ``do_reward`` and ``sample_interventional`` use the same Z-
+    marginalisation when ``expose_z=False``.  Verify the two estimates of
+    P(R=+1 | do(a)) agree to within a comfortable Monte-Carlo margin.
+
+    With n=10000 the M.C. standard error on a Bernoulli is √(0.25/n) ≈ 0.005,
+    so a 0.02 (≈4σ) tolerance is safe.
+    """
+    env = TabularSepsisEnv(cell=3, n_envs=8, device="cpu", alpha_conf=0.0)
+    env.reset(seed=0)
+    actions = torch.tensor([0, 1, 2, 3, 4]).view(-1, 1)
+    for a_int in actions.tolist():
+        a = torch.tensor(a_int * env.n_envs).view(env.n_envs, 1)
+        analytical = env.do_reward(a)[:, 1]  # P(R=+1)
+        samples = env.sample_interventional(state=None, action=a, n=10000)
+        empirical = ((samples + 1.0) / 2.0).mean(dim=1)
+        gap = (analytical - empirical).abs().max().item()
+        assert gap < 0.02, (
+            f"do_reward/sample_interventional disagree by {gap:.4f} on "
+            f"action {a_int} — Z-marginalisation drift between the two paths"
+        )

@@ -176,8 +176,24 @@ class TabularSepsisEnv(CausalEnv):
         return self._observe(), reward, terminated, truncated, self._info()
 
     def do_reward(self, action: Tensor) -> Tensor:
+        """Returns the interventional reward distribution P(R | do(A=a)).
+
+        v19: ``expose_z`` parity with ``sample_interventional``.  When Z is
+        observed (C1, C2) condition on the full latent state; when Z is
+        hidden (C3, C4) marginalise uniformly over Z ∈ {0, 1}.  Pre-v19
+        ``do_reward`` ignored ``expose_z``, so ``BanditView.step`` (which
+        calls ``do_reward`` on every action) gave bit-identical reward
+        distributions across all four cells — defeating the cell taxonomy.
+
+        Returns shape (batch, 2) of [P(R=-1), P(R=+1)] probabilities.
+        """
         a = action.view(-1).to(torch.long).clamp(min=0, max=N_ACTIONS - 1)
-        return self.reward_probs[self._latent_state, a]
+        if self.config.expose_z:
+            return self.reward_probs[self._latent_state, a]
+        s_obs = self._latent_state % OBS_STATES
+        p_z0 = self.reward_probs[s_obs, a]
+        p_z1 = self.reward_probs[OBS_STATES + s_obs, a]
+        return 0.5 * p_z0 + 0.5 * p_z1
 
     def observed_reward_prob(self, action: Tensor) -> Tensor:
         """Returns the observational reward distribution P(R | A=a, obs_state).
