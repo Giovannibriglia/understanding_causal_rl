@@ -10,6 +10,7 @@ from causal_rl.algos.off_policy.confounded_dqn import ConfoundedDQN
 from causal_rl.algos.off_policy.cql import CQL
 from causal_rl.algos.off_policy.ddpg import DDPG
 from causal_rl.algos.off_policy.dqn import DQN
+from causal_rl.algos.off_policy.offline_bandit_ipw import OfflineBanditIPW
 from causal_rl.algos.off_policy.offline_bandit_naive import OfflineBanditNaive
 from causal_rl.algos.on_policy.a2c import A2C
 from causal_rl.algos.on_policy.ppo import PPO
@@ -70,6 +71,12 @@ register(AlgoSpec("rct", RCT, "discrete", _ALL_CELLS, "on_policy", default_n_env
 register(
     AlgoSpec(
         "offline_bandit_naive", OfflineBanditNaive, "discrete", _ALL_CELLS,
+        "off_policy", default_n_envs=8,
+    )
+)
+register(
+    AlgoSpec(
+        "offline_bandit_ipw", OfflineBanditIPW, "discrete", _ALL_CELLS,
         "off_policy", default_n_envs=8,
     )
 )
