@@ -37,8 +37,17 @@ N_ACTIONS: Final[int] = 8
 # (``apply_perturbation`` and any future variant) must rebind the
 # attribute to a fresh tensor: ``self.transition = perturb_*(...)``,
 # never ``self.transition[...] = ...``.
+#
+# v25: ``_REWARD_CACHE`` is keyed by ``confounding_profile`` because
+# the reward tensor differs between profiles (``smooth`` is the
+# legacy reward shape; ``simpson`` produces a Simpson's-paradox
+# structure for the bandit failure-case demo).  ``_TRANSITION_CACHE``
+# remains a single tensor — transitions are profile-independent.
 _TRANSITION_CACHE: Tensor | None = None
-_REWARD_CACHE: Tensor | None = None
+_REWARD_CACHE: dict[str, Tensor] = {}
+
+
+_VALID_CONFOUNDING_PROFILES = ("smooth", "simpson")
 
 
 class TabularSepsisEnv(CausalEnv):
@@ -53,9 +62,16 @@ class TabularSepsisEnv(CausalEnv):
         transition_path: str | None = None,
         reward_path: str | None = None,
         device: str | None = None,
+        confounding_profile: str = "smooth",
     ) -> None:
         if cell not in CELL_CONFIGS:
             msg = f"Unknown cell: {cell}"
+            raise ValueError(msg)
+        if confounding_profile not in _VALID_CONFOUNDING_PROFILES:
+            msg = (
+                f"confounding_profile must be one of "
+                f"{_VALID_CONFOUNDING_PROFILES}, got {confounding_profile!r}"
+            )
             raise ValueError(msg)
         self.cell = cell
         self.config = CELL_CONFIGS[cell]
@@ -64,6 +80,7 @@ class TabularSepsisEnv(CausalEnv):
         self.gamma = gamma
         self.dense_reward = dense_reward
         self.alpha_conf = alpha_conf
+        self.confounding_profile = confounding_profile
         self.device = get_device(device)
 
         self.is_discrete_action = True
@@ -98,32 +115,103 @@ class TabularSepsisEnv(CausalEnv):
         return _TRANSITION_CACHE
 
     def _load_or_build_reward(self, reward_path: str | None) -> Tensor:
-        import math
-
         if reward_path is not None and Path(reward_path).exists():
             arr = np.load(reward_path)
             return torch.as_tensor(arr, dtype=torch.float32)
-        global _REWARD_CACHE
-        if _REWARD_CACHE is None:
-            reward = torch.zeros((LATENT_STATES, N_ACTIONS, 2), dtype=torch.float32)
-            for s in range(LATENT_STATES):
-                z = float(s // OBS_STATES)
-                best_a_norm = 0.2 + 0.4 * z
-                # Rank actions by closeness to best_a_norm (rank 0 = best).
-                # Rank-normalise to [0,1] so the uniform-policy mean p_pos is exactly 0.5.
-                distances = [
-                    abs(float(a) / float(N_ACTIONS - 1) - best_a_norm) for a in range(N_ACTIONS)
-                ]
-                sorted_dists = sorted(set(distances))
-                rank_of = {d: sorted_dists.index(d) for d in sorted_dists}
-                for a in range(N_ACTIONS):
-                    rank_norm = float(rank_of[distances[a]]) / float(N_ACTIONS - 1)
-                    p_pos = 1.0 / (1.0 + math.exp(6.0 * (rank_norm - 0.5)))
-                    p_pos = float(max(0.02, min(0.98, p_pos)))
-                    reward[s, a, 0] = 1.0 - p_pos
-                    reward[s, a, 1] = p_pos
-            _REWARD_CACHE = reward
-        return _REWARD_CACHE
+        profile = self.confounding_profile
+        if profile not in _REWARD_CACHE:
+            if profile == "smooth":
+                _REWARD_CACHE[profile] = self._build_reward_smooth()
+            elif profile == "simpson":
+                _REWARD_CACHE[profile] = self._build_reward_simpson()
+            else:
+                # Unreachable: __init__ validates against _VALID_CONFOUNDING_PROFILES.
+                msg = f"unhandled confounding_profile: {profile!r}"
+                raise AssertionError(msg)
+        return _REWARD_CACHE[profile]
+
+    def _build_reward_smooth(self) -> Tensor:
+        """Legacy reward profile (pre-v25, byte-identical).
+
+        Smooth sigmoid distance to a Z-conditional best arm, clipped at
+        [0.02, 0.98].  Confounding is real (per-Z optima differ) but
+        mild — naive and IPW estimators tend to recover the same argmax
+        on bandit runs because the per-arm reward distributions are
+        similar enough that the marginalised optimum lies adjacent to
+        each per-Z optimum.  See ``docs/v25_simpson_bandit.md``.
+        """
+        import math
+
+        reward = torch.zeros((LATENT_STATES, N_ACTIONS, 2), dtype=torch.float32)
+        for s in range(LATENT_STATES):
+            z = float(s // OBS_STATES)
+            best_a_norm = 0.2 + 0.4 * z
+            # Rank actions by closeness to best_a_norm (rank 0 = best).
+            # Rank-normalise to [0,1] so the uniform-policy mean p_pos is exactly 0.5.
+            distances = [
+                abs(float(a) / float(N_ACTIONS - 1) - best_a_norm) for a in range(N_ACTIONS)
+            ]
+            sorted_dists = sorted(set(distances))
+            rank_of = {d: sorted_dists.index(d) for d in sorted_dists}
+            for a in range(N_ACTIONS):
+                rank_norm = float(rank_of[distances[a]]) / float(N_ACTIONS - 1)
+                p_pos = 1.0 / (1.0 + math.exp(6.0 * (rank_norm - 0.5)))
+                p_pos = float(max(0.02, min(0.98, p_pos)))
+                reward[s, a, 0] = 1.0 - p_pos
+                reward[s, a, 1] = p_pos
+        return reward
+
+    def _build_reward_simpson(self) -> Tensor:
+        """Reward profile producing Simpson's-paradox confounding.
+
+        * Under Z=0: arm 0 has high reward (P_HIGH), arm N-1 has low
+          (P_LOW).  Middle arms have moderate reward (P_MID).
+        * Under Z=1: arm 0 has low, arm N-1 has high.  Middle arms
+          again have moderate reward.
+        * Marginal under uniform P(Z): arms 0 and N-1 each have mean
+          (P_HIGH + P_LOW) / 2; middle arms have mean ~ P_MID.  When
+          P_MID > (P_HIGH + P_LOW) / 2, middle arms are do-optimal
+          under marginal P(Z).
+
+        A behaviour policy that peeks at Z and prefers arm 0 when Z=0
+        / arm N-1 when Z=1 produces a buffer where naive sample-mean
+        of arm 0 is biased upward (only sees it when Z=0 where it's
+        great); same for arm N-1.  Middle arms are sampled rarely so
+        their estimates are noisy but unbiased.  Naive's argmax: a
+        side arm.  IPW's argmax: a middle arm — the marginal
+        do-optimum.
+
+        Concrete parameters tuned by ``test_simpson_argmax_flip``.
+        """
+        # P_HIGH > P_MID > 0.5 * (P_HIGH + P_LOW) > P_LOW gives the
+        # required marginal ordering.  With P_HIGH=0.85, P_LOW=0.10:
+        # marginal(side) = 0.475 < P_MID=0.55, so middle arms strictly
+        # dominate by 0.075 under marginal P(Z).
+        p_high = 0.85
+        p_low = 0.10
+        p_mid = 0.55
+
+        reward = torch.zeros((LATENT_STATES, N_ACTIONS, 2), dtype=torch.float32)
+        for s in range(LATENT_STATES):
+            z = s // OBS_STATES  # 0 or 1
+            for a in range(N_ACTIONS):
+                if z == 0:
+                    if a == 0:
+                        p_pos = p_high
+                    elif a == N_ACTIONS - 1:
+                        p_pos = p_low
+                    else:
+                        p_pos = p_mid
+                else:  # z == 1
+                    if a == 0:
+                        p_pos = p_low
+                    elif a == N_ACTIONS - 1:
+                        p_pos = p_high
+                    else:
+                        p_pos = p_mid
+                reward[s, a, 0] = 1.0 - p_pos
+                reward[s, a, 1] = p_pos
+        return reward
 
     def _decode_obs(self, obs_index: Tensor) -> Tensor:
         idx = obs_index.to(torch.long)

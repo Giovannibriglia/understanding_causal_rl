@@ -39,7 +39,7 @@ def test_default_transition_tensor_is_shared() -> None:
     drives the speedup."""
     # Reset cache so the test is independent of test ordering.
     tabular_sepsis._TRANSITION_CACHE = None
-    tabular_sepsis._REWARD_CACHE = None
+    tabular_sepsis._REWARD_CACHE = {}
 
     e1 = TabularSepsisEnv(cell=1, n_envs=4, device="cpu")
     e2 = TabularSepsisEnv(cell=3, n_envs=8, device="cpu", alpha_conf=2.0)
@@ -71,7 +71,7 @@ def test_repeated_construction_is_fast() -> None:
     regression that re-introduces the loop.
     """
     tabular_sepsis._TRANSITION_CACHE = None
-    tabular_sepsis._REWARD_CACHE = None
+    tabular_sepsis._REWARD_CACHE = {}
 
     t0 = time.perf_counter()
     for _ in range(24):
@@ -95,7 +95,7 @@ def test_perturbation_does_not_mutate_cache() -> None:
     from causal_rl.envs.perturbations import perturb_tabular_transition
 
     tabular_sepsis._TRANSITION_CACHE = None
-    tabular_sepsis._REWARD_CACHE = None
+    tabular_sepsis._REWARD_CACHE = {}
 
     e1 = TabularSepsisEnv(cell=1, n_envs=4, device="cpu")
     pre_perturb = e1.transition.clone()
@@ -124,7 +124,7 @@ def test_transition_and_reward_independent_of_cell_and_alpha() -> None:
     construction relies on for the v23 speedup.
     """
     tabular_sepsis._TRANSITION_CACHE = None
-    tabular_sepsis._REWARD_CACHE = None
+    tabular_sepsis._REWARD_CACHE = {}
 
     envs = []
     for cell in (1, 2, 3, 4):
