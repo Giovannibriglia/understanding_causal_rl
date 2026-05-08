@@ -16,6 +16,21 @@ OBS_STATES: Final[int] = 720
 LATENT_STATES: Final[int] = 1440
 N_ACTIONS: Final[int] = 8
 
+# v23: cache the default transition / reward tensors at module scope.
+# They depend only on the global LATENT_STATES / OBS_STATES / N_ACTIONS
+# constants — not on cell, alpha_conf, or any per-instance state — so
+# building them once and sharing across instances is correct.  The
+# build path runs Python loops over LATENT_STATES * N_ACTIONS = 11,520
+# entries (~200ms on CPU); pre-cache, ``_run_offline`` reconstructed
+# the env at every eval / oracle / gap-metric checkpoint, paying that
+# cost ~24× per run.  Both perturbation paths
+# (``perturb_tabular_transition`` / ``_rewards``) clone the input
+# tensor before modifying it, so sharing the cache is safe.  Custom
+# ``transition_path`` / ``reward_path`` arguments still bypass the
+# cache and load from disk as before.
+_TRANSITION_CACHE: Tensor | None = None
+_REWARD_CACHE: Tensor | None = None
+
 
 class TabularSepsisEnv(CausalEnv):
     def __init__(
@@ -56,19 +71,22 @@ class TabularSepsisEnv(CausalEnv):
         if transition_path is not None and Path(transition_path).exists():
             arr = np.load(transition_path)
             return torch.as_tensor(arr, dtype=torch.float32)
-        transition = torch.zeros((LATENT_STATES, N_ACTIONS, LATENT_STATES), dtype=torch.float32)
-        for s in range(LATENT_STATES):
-            z = s // OBS_STATES
-            base = s % OBS_STATES
-            for a in range(N_ACTIONS):
-                delta = (a + 1) * (1 if z == 0 else 2)
-                ns0 = z * OBS_STATES + ((base + delta) % OBS_STATES)
-                ns1 = z * OBS_STATES + ((base + delta + 7) % OBS_STATES)
-                ns2 = (1 - z) * OBS_STATES + ((base + delta + 3) % OBS_STATES)
-                transition[s, a, ns0] = 0.75
-                transition[s, a, ns1] = 0.2
-                transition[s, a, ns2] = 0.05
-        return transition
+        global _TRANSITION_CACHE
+        if _TRANSITION_CACHE is None:
+            transition = torch.zeros((LATENT_STATES, N_ACTIONS, LATENT_STATES), dtype=torch.float32)
+            for s in range(LATENT_STATES):
+                z = s // OBS_STATES
+                base = s % OBS_STATES
+                for a in range(N_ACTIONS):
+                    delta = (a + 1) * (1 if z == 0 else 2)
+                    ns0 = z * OBS_STATES + ((base + delta) % OBS_STATES)
+                    ns1 = z * OBS_STATES + ((base + delta + 7) % OBS_STATES)
+                    ns2 = (1 - z) * OBS_STATES + ((base + delta + 3) % OBS_STATES)
+                    transition[s, a, ns0] = 0.75
+                    transition[s, a, ns1] = 0.2
+                    transition[s, a, ns2] = 0.05
+            _TRANSITION_CACHE = transition
+        return _TRANSITION_CACHE
 
     def _load_or_build_reward(self, reward_path: str | None) -> Tensor:
         import math
@@ -76,24 +94,27 @@ class TabularSepsisEnv(CausalEnv):
         if reward_path is not None and Path(reward_path).exists():
             arr = np.load(reward_path)
             return torch.as_tensor(arr, dtype=torch.float32)
-        reward = torch.zeros((LATENT_STATES, N_ACTIONS, 2), dtype=torch.float32)
-        for s in range(LATENT_STATES):
-            z = float(s // OBS_STATES)
-            best_a_norm = 0.2 + 0.4 * z
-            # Rank actions by closeness to best_a_norm (rank 0 = best).
-            # Rank-normalise to [0,1] so the uniform-policy mean p_pos is exactly 0.5.
-            distances = [
-                abs(float(a) / float(N_ACTIONS - 1) - best_a_norm) for a in range(N_ACTIONS)
-            ]
-            sorted_dists = sorted(set(distances))
-            rank_of = {d: sorted_dists.index(d) for d in sorted_dists}
-            for a in range(N_ACTIONS):
-                rank_norm = float(rank_of[distances[a]]) / float(N_ACTIONS - 1)
-                p_pos = 1.0 / (1.0 + math.exp(6.0 * (rank_norm - 0.5)))
-                p_pos = float(max(0.02, min(0.98, p_pos)))
-                reward[s, a, 0] = 1.0 - p_pos
-                reward[s, a, 1] = p_pos
-        return reward
+        global _REWARD_CACHE
+        if _REWARD_CACHE is None:
+            reward = torch.zeros((LATENT_STATES, N_ACTIONS, 2), dtype=torch.float32)
+            for s in range(LATENT_STATES):
+                z = float(s // OBS_STATES)
+                best_a_norm = 0.2 + 0.4 * z
+                # Rank actions by closeness to best_a_norm (rank 0 = best).
+                # Rank-normalise to [0,1] so the uniform-policy mean p_pos is exactly 0.5.
+                distances = [
+                    abs(float(a) / float(N_ACTIONS - 1) - best_a_norm) for a in range(N_ACTIONS)
+                ]
+                sorted_dists = sorted(set(distances))
+                rank_of = {d: sorted_dists.index(d) for d in sorted_dists}
+                for a in range(N_ACTIONS):
+                    rank_norm = float(rank_of[distances[a]]) / float(N_ACTIONS - 1)
+                    p_pos = 1.0 / (1.0 + math.exp(6.0 * (rank_norm - 0.5)))
+                    p_pos = float(max(0.02, min(0.98, p_pos)))
+                    reward[s, a, 0] = 1.0 - p_pos
+                    reward[s, a, 1] = p_pos
+            _REWARD_CACHE = reward
+        return _REWARD_CACHE
 
     def _decode_obs(self, obs_index: Tensor) -> Tensor:
         idx = obs_index.to(torch.long)
