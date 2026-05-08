@@ -67,6 +67,13 @@ offline_updates: 400
 # don't admit argmax-flipping confounding.  See
 # ``docs/v25_simpson_bandit.md``.
 confounding_profile: simpson
+# v25.1: raise the IPW clip from the v21 algo default (10) to 100 so
+# IPW unbiasedness survives the strong Z-peeking confounded data the
+# simpson profile is designed to test.  At α_conf=4 + reward_aligned,
+# rare-Z arm samples have inverse weights ~70 — clip=10 would
+# suppress the unbiasedness IPW relies on, defeating the controlled-
+# pair contrast the paper hinges on.  See PR #31 v25.1 comment.
+ipw_clip: 100.0
 # v17 diagnostic budget (matches paper_bandit.yaml).
 n_bootstrap: 50
 n_samples_gap: 100

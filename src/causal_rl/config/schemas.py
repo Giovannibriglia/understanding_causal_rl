@@ -85,6 +85,11 @@ class RunConfigModel(BaseModel):
     # shape (byte-identical to pre-v25); ``"simpson"`` activates the
     # Simpson's-paradox reward used by paper_bandit_offpolicy.
     confounding_profile: str = "smooth"
+    # v25.1: importance-weight clip for ``offline_bandit_ipw``.  Default
+    # 10.0 matches the v21 algo default; paper_bandit_offpolicy opts
+    # into 100.0 so IPW unbiasedness survives strong Z-peeking
+    # confounded data.
+    ipw_clip: float = Field(10.0, gt=0.0)
 
 
 class MatrixConfig(BaseModel):
@@ -132,6 +137,8 @@ class MatrixConfig(BaseModel):
     # all other configs default to ``"smooth"`` for byte-identical
     # reproducibility of pre-v25 results.
     confounding_profile: str = "smooth"
+    # v25.1: see ``RunConfigModel.ipw_clip``.
+    ipw_clip: float = Field(10.0, gt=0.0)
 
 
 def load_yaml(path: Path) -> dict[str, Any]:

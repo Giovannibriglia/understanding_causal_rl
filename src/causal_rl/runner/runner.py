@@ -94,6 +94,12 @@ class RunnerConfig:
     # pre-v25 behaviour byte-for-byte.  ``"simpson"`` activates the
     # Simpson's-paradox reward structure used by paper_bandit_offpolicy.
     confounding_profile: str = "smooth"
+    # v25.1: importance-weight clip for ``offline_bandit_ipw``.  Default
+    # 10.0 matches the v21 algo default (variance-control on
+    # ``paper_bandit_offpolicy.yaml`` runs).  ``paper_bandit_offpolicy``
+    # opts into 100.0 so IPW unbiasedness survives strong Z-peeking
+    # behaviour at α_conf=4.  Ignored by all other algos.
+    ipw_clip: float = 10.0
 
 
 class BenchmarkRunner:
@@ -128,6 +134,12 @@ class BenchmarkRunner:
         if self.env.is_discrete_action:
             n_actions = self._n_actions
             algo_kwargs: dict[str, object] = {"obs_dim": obs_dim, "n_actions": n_actions}
+            # v25.1: forward the configured importance-weight clip only
+            # to algos that accept it.  Other algos raise on unknown
+            # kwargs, so we gate by name rather than passing
+            # unconditionally.
+            if config.algorithm == "offline_bandit_ipw":
+                algo_kwargs["ipw_clip"] = config.ipw_clip
             if config.algorithm in {"ucb_plus", "ucb_minus"} and isinstance(self.env, BanditView):
                 actions_obs, rewards_obs = self.env.collect_observational_data(
                     n_samples=5000,

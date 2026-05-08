@@ -109,6 +109,16 @@ def parse_args() -> argparse.Namespace:
             "Simpson's-paradox reward for paper_bandit_offpolicy."
         ),
     )
+    parser.add_argument(
+        "--ipw-clip",
+        type=float,
+        default=10.0,
+        help=(
+            "v25.1: importance-weight clip for offline_bandit_ipw.  "
+            "Default 10.0; paper_bandit_offpolicy uses 100.0 so "
+            "IPW unbiasedness survives strong Z-peeking confounded data."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -143,6 +153,7 @@ def main() -> None:
         forbidden_actions=tuple(args.forbidden_actions or ()),
         n_action_restriction_steps=args.n_action_restriction_steps,
         confounding_profile=args.confounding_profile,
+        ipw_clip=args.ipw_clip,
     )
     runner = BenchmarkRunner(cfg)
     runner.run()
