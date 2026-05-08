@@ -28,6 +28,15 @@ N_ACTIONS: Final[int] = 8
 # tensor before modifying it, so sharing the cache is safe.  Custom
 # ``transition_path`` / ``reward_path`` arguments still bypass the
 # cache and load from disk as before.
+#
+# v24 invariant: ``self.transition`` and ``self.reward_probs`` MUST
+# NOT be mutated in-place.  The cache returns its tensor by reference
+# (asserted by ``test_default_transition_tensor_is_shared`` via
+# ``data_ptr()`` equality), so an in-place write would corrupt every
+# other env instance in the process.  All current mutation paths
+# (``apply_perturbation`` and any future variant) must rebind the
+# attribute to a fresh tensor: ``self.transition = perturb_*(...)``,
+# never ``self.transition[...] = ...``.
 _TRANSITION_CACHE: Tensor | None = None
 _REWARD_CACHE: Tensor | None = None
 

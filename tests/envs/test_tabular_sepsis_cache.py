@@ -105,3 +105,53 @@ def test_perturbation_does_not_mutate_cache() -> None:
     assert torch.equal(e2.transition, pre_perturb), (
         "perturbation appears to have mutated the cached transition tensor"
     )
+
+
+def test_transition_and_reward_independent_of_cell_and_alpha() -> None:
+    """The cache returns the same tensor object regardless of ``cell``
+    and ``alpha_conf`` — the assumption that justifies a single
+    process-wide cache.
+
+    A future change that accidentally introduces a cell- or
+    alpha-dependent build (e.g. cell-specific reward shaping) would
+    silently produce wrong results because envs across cells would
+    all share the cache from whichever cell was constructed first.
+    This test fails loudly in that case.
+
+    Verifies *both* the values are identical (``torch.equal``) and
+    the storage is shared (``data_ptr()`` equality).  Storage equality
+    is the stronger property and is what ``_run_offline``'s ~24× env
+    construction relies on for the v23 speedup.
+    """
+    tabular_sepsis._TRANSITION_CACHE = None
+    tabular_sepsis._REWARD_CACHE = None
+
+    envs = []
+    for cell in (1, 2, 3, 4):
+        for alpha in (0.0, 1.0, 2.0, 4.0):
+            envs.append(
+                TabularSepsisEnv(
+                    cell=cell, n_envs=4, device="cpu", alpha_conf=alpha
+                )
+            )
+
+    base_t_ptr = envs[0].transition.data_ptr()
+    base_r_ptr = envs[0].reward_probs.data_ptr()
+    base_t_val = envs[0].transition
+    base_r_val = envs[0].reward_probs
+
+    for env in envs[1:]:
+        assert env.transition.data_ptr() == base_t_ptr, (
+            f"transition cache violated: env(cell={env.cell}, "
+            f"alpha={env.alpha_conf}) has distinct storage"
+        )
+        assert env.reward_probs.data_ptr() == base_r_ptr, (
+            f"reward_probs cache violated: env(cell={env.cell}, "
+            f"alpha={env.alpha_conf}) has distinct storage"
+        )
+        # Defence-in-depth: also assert values match, in case a
+        # future change uses a per-call ``.clone()`` on cache return
+        # (which would still be correct but would fail the data_ptr
+        # check).
+        assert torch.equal(env.transition, base_t_val)
+        assert torch.equal(env.reward_probs, base_r_val)
