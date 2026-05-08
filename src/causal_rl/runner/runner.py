@@ -206,6 +206,13 @@ class BenchmarkRunner:
 
     def _make_behaviour_with_bias(self, name: str, **kwargs: object) -> object:
         # Pass bias_strength only when the behaviour constructor accepts it.
+        # v26: ``reward_aligned_z`` additionally needs ``alpha_conf`` and an
+        # env reference (for Z-conditional argmax precomputation).  Inject
+        # those only for that policy so legacy explorers (which don't accept
+        # the extra kwargs) keep working.
+        if name == "reward_aligned_z":
+            kwargs.setdefault("alpha_conf", self.config.alpha_conf)
+            kwargs.setdefault("env", self.env)
         try:
             return make_behaviour(name, bias_strength=self.config.bias_strength, **kwargs)
         except TypeError:
@@ -818,8 +825,10 @@ class BenchmarkRunner:
                     for key, value in step_metrics.items():
                         totals[key] = totals.get(key, 0.0) + float(value)
 
-                    # Dual-policy delta_tv: also measure under behavior policy action
-                    latent = info.get("latent_U") if isinstance(info, dict) else None
+                    # Dual-policy delta_tv: also measure under behavior policy action.
+                    # v26: read from whichever latent the policy declares.
+                    _latent_key = getattr(self.behaviour_policy, "latent_source", "latent_U")
+                    latent = info.get(_latent_key) if isinstance(info, dict) else None
                     beh_action, _ = self.behaviour_policy.select_action(obs, latent=latent)
                     beh_step_metrics = compute_gap_metrics(
                         eval_env,

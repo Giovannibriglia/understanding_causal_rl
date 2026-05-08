@@ -9,6 +9,7 @@ from causal_rl.behaviour.curiosity import CuriosityExplorer
 from causal_rl.behaviour.information import InformationExplorer
 from causal_rl.behaviour.novelty_trap import NoveltyTrapExplorer
 from causal_rl.behaviour.reward_aligned import RewardAlignedExplorer
+from causal_rl.behaviour.reward_aligned_z import RewardAlignedZExplorer
 from causal_rl.behaviour.reward_misaligned import RewardMisalignedExplorer
 from causal_rl.behaviour.uniform import UniformExplorer
 
@@ -36,6 +37,12 @@ def make(name: str, **kwargs: object) -> BiasedExplorer:
 
 register(BehaviourSpec("uniform", UniformExplorer, depends_on_u=False))
 register(BehaviourSpec("reward_aligned", RewardAlignedExplorer, depends_on_u=True))
+# v26: Z-peeking variant of reward_aligned.  Distinct registry entry so
+# YAML configs are explicit about which behaviour they exercise.  Old
+# ``reward_aligned`` is preserved as the U-peeking baseline (used by
+# ``coverage_stress.yaml``); new ``reward_aligned_z`` is used by
+# paper.yaml / paper_bandit_offpolicy.yaml / smoke_v8.yaml.
+register(BehaviourSpec("reward_aligned_z", RewardAlignedZExplorer, depends_on_u=True))
 register(BehaviourSpec("reward_misaligned", RewardMisalignedExplorer, depends_on_u=True))
 register(BehaviourSpec("information", InformationExplorer, depends_on_u=False))
 register(BehaviourSpec("certainty_seeking", CertaintySeekingExplorer, depends_on_u=False))
