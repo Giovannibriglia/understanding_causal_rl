@@ -209,6 +209,10 @@ def _build_cmd(
     profile = getattr(matrix, "confounding_profile", "smooth")
     if profile != "smooth":
         cmd.extend(["--confounding-profile", str(profile)])
+    # v25.1: forward the IPW clip when non-default.
+    ipw_clip = getattr(matrix, "ipw_clip", 10.0)
+    if abs(ipw_clip - 10.0) > 1e-9:
+        cmd.extend(["--ipw-clip", str(ipw_clip)])
     return cmd
 
 

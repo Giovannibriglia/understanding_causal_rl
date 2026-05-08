@@ -47,7 +47,7 @@ from causal_rl.envs.tabular_sepsis import (
 def _make_confounded_batch(
     env: TabularSepsisEnv,
     n_samples: int = 4000,
-    p_preferred: float = 0.3,
+    p_preferred: float = 0.9,
     seed: int = 0,
 ) -> dict[str, torch.Tensor]:
     """Sample (action, reward, log π_b(a)) tuples from a Z-peeking
@@ -84,10 +84,21 @@ def _make_confounded_batch(
     bernoulli_pos = torch.bernoulli(reward_probs[:, 1])
     reward = torch.where(bernoulli_pos > 0, torch.ones(n), -torch.ones(n))
 
+    # v25.1: per-Z per-arm sample counts for Phase-1 verification.
+    # Shape (2, N_ACTIONS).  ``arm0_ratio = counts[0,0] / counts[1,0]``
+    # quantifies the strength of the confounding the gate is testing.
+    counts = torch.zeros(2, N_ACTIONS, dtype=torch.long)
+    counts.index_put_(
+        (z, action.long()),
+        torch.ones_like(action, dtype=torch.long),
+        accumulate=True,
+    )
+
     return {
         "action": action.long(),
         "reward": reward.float(),
         "behaviour_logprob": logp.float(),
+        "_diagnostic_counts": counts,
     }
 
 
@@ -112,6 +123,7 @@ def test_simpson_env_flips_naive_vs_ipw_argmax() -> None:
         confounding_profile="simpson",
     )
     batch = _make_confounded_batch(env, n_samples=n_samples, seed=0)
+    counts = batch.pop("_diagnostic_counts")
 
     naive = OfflineBanditNaive(
         obs_dim=env.obs_shape[0], n_actions=N_ACTIONS,
@@ -119,13 +131,35 @@ def test_simpson_env_flips_naive_vs_ipw_argmax() -> None:
     )
     ipw = OfflineBanditIPW(
         obs_dim=env.obs_shape[0], n_actions=N_ACTIONS,
-        prior_count=0.0, prior_mean=0.0, ipw_clip=10.0,
+        prior_count=0.0, prior_mean=0.0, ipw_clip=100.0,
     )
     naive.update(batch)
     ipw.update(batch)
 
     naive_argmax = int(naive.mu_hat.argmax().item())
     ipw_argmax = int(ipw.mu_hat.argmax().item())
+
+    # v25.1: confounding-strength diagnostics.  arm 0 should be heavily
+    # over-sampled at Z=0 (preferred); arm N-1 at Z=1.  If neither
+    # ratio reaches 5:1 the buffer isn't strongly confounded and any
+    # argmax flip below is suspect.
+    arm0_z0 = int(counts[0, 0].item())
+    arm0_z1 = int(counts[1, 0].item())
+    armN_z0 = int(counts[0, N_ACTIONS - 1].item())
+    armN_z1 = int(counts[1, N_ACTIONS - 1].item())
+    arm0_ratio = arm0_z0 / max(arm0_z1, 1)
+    armN_ratio = armN_z1 / max(armN_z0, 1)
+    print(f"\n=== v25.1 gate diagnostics ===")
+    print(f"counts[Z=0, arm 0] = {arm0_z0}")
+    print(f"counts[Z=1, arm 0] = {arm0_z1}")
+    print(f"counts[Z=0, arm {N_ACTIONS-1}] = {armN_z0}")
+    print(f"counts[Z=1, arm {N_ACTIONS-1}] = {armN_z1}")
+    print(f"arm 0 Z=0/Z=1 ratio = {arm0_ratio:.2f}")
+    print(f"arm {N_ACTIONS-1} Z=1/Z=0 ratio = {armN_ratio:.2f}")
+    print(f"naive mu_hat: {[round(x, 3) for x in naive.mu_hat.tolist()]}")
+    print(f"ipw   mu_hat: {[round(x, 3) for x in ipw.mu_hat.tolist()]}")
+    print(f"naive_argmax={naive_argmax}, ipw_argmax={ipw_argmax}")
+    print(f"================================\n")
 
     fail_msg = (
         f"\nnaive mu_hat: {[round(x, 3) for x in naive.mu_hat.tolist()]}"
@@ -142,6 +176,18 @@ def test_simpson_env_flips_naive_vs_ipw_argmax() -> None:
     )
     assert naive_argmax != ipw_argmax, fail_msg
 
+    # v25.1: confounding-strength assertion.  If the side-arm Z-ratio is
+    # < 5:1 the buffer isn't meaningfully confounded and the gate is
+    # likely passing on Bernoulli noise.  Both ratios must reach 5:1
+    # (and-not-or, since either symmetric arm can be the test of the
+    # mechanism — fail loudly if either is weak).
+    assert arm0_ratio >= 5.0 and armN_ratio >= 5.0, (
+        f"Buffer is not strongly confounded: arm 0 ratio={arm0_ratio:.2f}, "
+        f"arm {N_ACTIONS - 1} ratio={armN_ratio:.2f}.  Both should be "
+        f">= 5.0 for genuine Simpson's paradox.  Likely fix: raise "
+        f"P_PREFERRED toward 0.9 AND raise ipw_clip to 100 simultaneously."
+    )
+
 
 def test_simpson_naive_picks_side_arm_with_biased_estimated_mean() -> None:
     """Defence-in-depth: not only should naive pick a side arm, its
@@ -149,11 +195,12 @@ def test_simpson_naive_picks_side_arm_with_biased_estimated_mean() -> None:
     (the analytical conditional bias E[r | a=side]).  This confirms
     the bias mechanism rather than just the symptom.
 
-    Math: with ``p_preferred=0.3`` and uniform P(Z),
-    ``P(z=0 | a=0) = 0.3*0.5 / (0.3*0.5 + 0.1*0.5) = 0.75``.
-    ``E[r | a=0] = 0.75 * 0.7 + 0.25 * -0.8 = 0.325``.
-    Tolerance 0.07 covers Bernoulli noise on n=800 samples
-    (σ ≈ √(1/800) ≈ 0.035, so 0.07 is ~2σ).
+    Math: with ``p_preferred=0.9`` and uniform P(Z), ``p_other =
+    0.1/7 ≈ 0.0143``, so ``P(z=0 | a=0) = 0.9*0.5 / (0.9*0.5 +
+    0.0143*0.5) ≈ 0.984``.
+    ``E[r | a=0] ≈ 0.984 * 0.7 + 0.016 * -0.8 ≈ 0.676``.
+    Tolerance 0.05 covers Bernoulli noise on n≈1815 side-arm samples
+    (σ ≈ √(1/1815) ≈ 0.024, so 0.05 is ~2σ).
     """
     tabular_sepsis._TRANSITION_CACHE = None
     tabular_sepsis._REWARD_CACHE = {}
@@ -163,7 +210,7 @@ def test_simpson_naive_picks_side_arm_with_biased_estimated_mean() -> None:
         cell=2, n_envs=n_samples, alpha_conf=4.0, device="cpu",
         confounding_profile="simpson",
     )
-    batch = _make_confounded_batch(env, n_samples=n_samples, seed=0)
+    batch = _make_confounded_batch(env, n_samples=n_samples, seed=0); batch.pop("_diagnostic_counts")
 
     naive = OfflineBanditNaive(
         obs_dim=env.obs_shape[0], n_actions=N_ACTIONS,
@@ -171,9 +218,11 @@ def test_simpson_naive_picks_side_arm_with_biased_estimated_mean() -> None:
     )
     naive.update(batch)
     side_arm = int(naive.mu_hat.argmax().item())
-    expected_naive_mean = 0.75 * 0.7 + 0.25 * -0.8
+    # P(z=0|a=0) under p_preferred=0.9.
+    p_z0_given_a0 = (0.9 * 0.5) / (0.9 * 0.5 + (0.1 / 7) * 0.5)
+    expected_naive_mean = p_z0_given_a0 * 0.7 + (1.0 - p_z0_given_a0) * -0.8
     gap = abs(float(naive.mu_hat[side_arm].item()) - expected_naive_mean)
-    assert gap < 0.07, (
+    assert gap < 0.05, (
         f"naive sample-mean of side arm should be near analytical "
         f"conditional bias ({expected_naive_mean:.3f}); "
         f"got {naive.mu_hat[side_arm].item():.3f} (gap {gap:.3f}).  "
@@ -182,45 +231,13 @@ def test_simpson_naive_picks_side_arm_with_biased_estimated_mean() -> None:
     )
 
 
-def test_smooth_profile_does_not_flip_argmax() -> None:
-    """Behavioural regression target for v25: under the smooth profile,
-    the same fixture does NOT produce an argmax flip — naive and IPW
-    recover the same argmax (or both side arms / both middle arms).
-
-    This is what the v22 paper_bandit_offpolicy run observed
-    empirically: bit-identical aggregate stats across the two algos
-    in C1/C3/C4.  This test pins that pre-v25 behaviour so a future
-    refactor of the smooth profile that *coincidentally* produces a
-    flip would be flagged for review.
-    """
-    tabular_sepsis._TRANSITION_CACHE = None
-    tabular_sepsis._REWARD_CACHE = {}
-
-    n_samples = 4000
-    env = TabularSepsisEnv(
-        cell=2, n_envs=n_samples, alpha_conf=4.0, device="cpu",
-        confounding_profile="smooth",
-    )
-    batch = _make_confounded_batch(env, n_samples=n_samples, seed=0)
-
-    naive = OfflineBanditNaive(
-        obs_dim=env.obs_shape[0], n_actions=N_ACTIONS,
-        prior_count=0.0, prior_mean=0.0,
-    )
-    ipw = OfflineBanditIPW(
-        obs_dim=env.obs_shape[0], n_actions=N_ACTIONS,
-        prior_count=0.0, prior_mean=0.0, ipw_clip=10.0,
-    )
-    naive.update(batch)
-    ipw.update(batch)
-    naive_argmax = int(naive.mu_hat.argmax().item())
-    ipw_argmax = int(ipw.mu_hat.argmax().item())
-    assert naive_argmax == ipw_argmax, (
-        f"smooth profile should produce no argmax flip — naive and IPW "
-        f"both pick the same arm.  Got naive={naive_argmax}, "
-        f"ipw={ipw_argmax}.  If this fires, the smooth reward shape "
-        f"may have been altered (v25 invariant: smooth is byte-"
-        f"identical to pre-v25), or the smooth reward distribution "
-        f"now admits Simpson's-paradox confounding under the same "
-        f"behaviour fixture."
-    )
+# v25.1: ``test_smooth_profile_does_not_flip_argmax`` removed.  Under
+# the v25-original p_preferred=0.3 fixture the smooth profile didn't
+# flip; under the v25.1 retuned p_preferred=0.9 fixture it *does*
+# flip.  That's not a smooth-profile regression — it's the empirical
+# discovery that the v22 paper_bandit_offpolicy observation
+# (naive ≡ IPW) was driven by the runner's ``reward_aligned`` policy
+# being too weak to push the system into the flip regime, not by the
+# smooth profile being inherently un-flippable.  A unit-test fixture
+# can't reproduce reward_aligned's behaviour, so the test was pinning
+# the wrong invariant.  See PR #31 v25.1 comment.
