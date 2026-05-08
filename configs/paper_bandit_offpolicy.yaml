@@ -1,0 +1,69 @@
+# Off-policy bandit family — single-step episodes with offline data.
+#
+# v22: the on-policy ``paper_bandit.yaml`` matrix collapses the
+# ``pi_b_known`` axis (UCB-family is on-policy and never reads
+# behaviour log-probs).  This config exercises the four-cell
+# taxonomy fully by using the v21 off-policy bandit algos, which
+# differ in whether they apply IPW correction.  The contrast
+# between ``offline_bandit_naive`` and ``offline_bandit_ipw`` is
+# the bandit failure-case demonstration:
+#
+#   * Both algos train on the same buffer of (action, reward,
+#     behaviour_logprob) tuples collected from the behaviour policy.
+#   * ``offline_bandit_naive`` ignores the behaviour log-prob — its
+#     per-arm mean estimator is biased on confounded data.
+#   * ``offline_bandit_ipw`` applies IPW reweighting — recovers the
+#     interventional mean when log-probs are well-calibrated.
+#
+# Expected per-cell empirical signature (see
+# ``docs/v22_bandit_failure_case.md`` for the full story):
+#
+#   Cell 1 (expose_z=T, pi_b_known=T):
+#     * ``reward_aligned`` × α=4: naive's gap is large, IPW with
+#       true logprobs is small.  This is the headline failure-case
+#       contrast.
+#     * ``uniform`` (or α=0): both algos produce similar gaps —
+#       no confounding means no IPW correction needed.
+#   Cell 2 (expose_z=T, pi_b_known=F):
+#     * IPW relies on the propensity model.  Gap should sit between
+#       cell-1-IPW (true logprobs) and cell-1-naive (no IPW).
+#   Cell 3 (expose_z=F, pi_b_known=T):
+#     * Marginalised oracle is weaker (v19 fix).  IPW correction
+#       helps with confounding but not with hidden Z.
+#   Cell 4 (expose_z=F, pi_b_known=F):
+#     * Both errors compound.  Largest gap.
+#
+# total_runs: 4 cells × 1 env × 2 algos × 2 behaviours × 5 seeds × 4 alpha = 320
+# wall_time_estimate (n_workers=4): ~1.5 h
+cells: [1, 2, 3, 4]
+envs:
+  - bandit-tabular-sepsis-v0
+algorithms:
+  - offline_bandit_naive
+  - offline_bandit_ipw
+behaviours:
+  - uniform
+  - reward_aligned
+seeds: [0, 1, 2, 3, 4]
+total_frames: 64000
+n_checkpoints_train: 50
+n_checkpoints_eval: 50
+env_horizons:
+  bandit-tabular-sepsis-v0: 1
+alpha_conf: 0.0
+alpha_conf_sweep: [0.0, 1.0, 2.0, 4.0]
+n_envs: 64
+eval_perturbations: false
+# Off-policy bandits need an offline buffer.  Tuned empirically:
+# 4000 transitions is plenty for the propensity model to fit the
+# 8-arm-bandit behaviour policy with low calibration error;
+# 400 updates lets per-arm IPW means converge.
+offline_transitions: 4000
+offline_updates: 400
+# v17 diagnostic budget (matches paper_bandit.yaml).
+n_bootstrap: 50
+n_samples_gap: 100
+# v19 lattice fix — at horizon=1, returns are ∈ {-1, +1}; large
+# n_eval_episodes is needed for the divergence regression to operate
+# on a continuous response.
+n_eval_episodes: 50
