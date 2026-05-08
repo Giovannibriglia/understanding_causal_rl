@@ -98,6 +98,17 @@ def parse_args() -> argparse.Namespace:
         default="auto",
         help="Oracle type for evaluation: auto|dp|cem|grid|algo",
     )
+    parser.add_argument(
+        "--confounding-profile",
+        type=str,
+        default="smooth",
+        choices=["smooth", "simpson"],
+        help=(
+            "v25: tabular-env reward profile.  'smooth' (default) is "
+            "byte-identical to pre-v25; 'simpson' activates the "
+            "Simpson's-paradox reward for paper_bandit_offpolicy."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -131,6 +142,7 @@ def main() -> None:
         eval_perturbations=args.eval_perturbations,
         forbidden_actions=tuple(args.forbidden_actions or ()),
         n_action_restriction_steps=args.n_action_restriction_steps,
+        confounding_profile=args.confounding_profile,
     )
     runner = BenchmarkRunner(cfg)
     runner.run()

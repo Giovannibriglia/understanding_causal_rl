@@ -81,6 +81,10 @@ class RunConfigModel(BaseModel):
     n_action_restriction_steps: int | None = None
     env_overrides: EnvOverrides = Field(default_factory=EnvOverrides)
     algo_overrides: AlgoOverrides = Field(default_factory=AlgoOverrides)
+    # v25: tabular-env reward profile.  ``"smooth"`` is the legacy
+    # shape (byte-identical to pre-v25); ``"simpson"`` activates the
+    # Simpson's-paradox reward used by paper_bandit_offpolicy.
+    confounding_profile: str = "smooth"
 
 
 class MatrixConfig(BaseModel):
@@ -123,6 +127,11 @@ class MatrixConfig(BaseModel):
     # regime overrides ``offline_transitions``, ``forbidden_actions``, and
     # ``bias_strength`` for the runs it produces.
     coverage_regimes: list[CoverageRegime] | None = None
+    # v25: tabular-env reward profile.  See ``RunConfigModel`` for
+    # details.  Set to ``"simpson"`` in ``paper_bandit_offpolicy.yaml``;
+    # all other configs default to ``"smooth"`` for byte-identical
+    # reproducibility of pre-v25 results.
+    confounding_profile: str = "smooth"
 
 
 def load_yaml(path: Path) -> dict[str, Any]:

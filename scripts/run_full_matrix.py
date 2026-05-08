@@ -204,6 +204,11 @@ def _build_cmd(
         )
     if device is not None:
         cmd.extend(["--device", device])
+    # v25: forward the matrix-level reward-profile knob.  Default
+    # ``"smooth"`` keeps every existing config byte-identical to pre-v25.
+    profile = getattr(matrix, "confounding_profile", "smooth")
+    if profile != "smooth":
+        cmd.extend(["--confounding-profile", str(profile)])
     return cmd
 
 

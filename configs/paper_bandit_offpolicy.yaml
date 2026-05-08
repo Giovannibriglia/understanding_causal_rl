@@ -60,6 +60,13 @@ eval_perturbations: false
 # 400 updates lets per-arm IPW means converge.
 offline_transitions: 4000
 offline_updates: 400
+# v25: simpson reward profile activates the Simpson's-paradox
+# confounding the bandit failure-case demo needs.  The smooth (legacy)
+# profile produced bit-identical naive/IPW aggregate stats in
+# C1/C3/C4 across 40 seeds because the per-arm reward distributions
+# don't admit argmax-flipping confounding.  See
+# ``docs/v25_simpson_bandit.md``.
+confounding_profile: simpson
 # v17 diagnostic budget (matches paper_bandit.yaml).
 n_bootstrap: 50
 n_samples_gap: 100

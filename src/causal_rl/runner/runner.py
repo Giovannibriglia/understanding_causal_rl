@@ -90,6 +90,10 @@ class RunnerConfig:
     n_action_restriction_steps: int | None = None
     # Oracle choice for evaluation: 'auto'|'dp'|'cem'|'grid'|'algo'
     oracle: str = "auto"
+    # v25: env-side confounding profile.  ``"smooth"`` (default) preserves
+    # pre-v25 behaviour byte-for-byte.  ``"simpson"`` activates the
+    # Simpson's-paradox reward structure used by paper_bandit_offpolicy.
+    confounding_profile: str = "smooth"
 
 
 class BenchmarkRunner:
@@ -229,22 +233,24 @@ class BenchmarkRunner:
         return self._make_env_with_n(self._eval_n_envs)
 
     def _make_env_with_n(self, n_envs: int) -> CausalEnv:
-        if self.config.horizon is None:
-            return make_env(
-                self.config.env_name,
-                cell=self.config.cell,
-                n_envs=n_envs,
-                alpha_conf=self.config.alpha_conf,
-                device=str(self.device),
-            )
-        return make_env(
-            self.config.env_name,
-            cell=self.config.cell,
-            n_envs=n_envs,
-            alpha_conf=self.config.alpha_conf,
-            horizon=self.config.horizon,
-            device=str(self.device),
-        )
+        # v25: only forward ``confounding_profile`` to envs that accept
+        # it (TabularSepsisEnv and its bandit wrapper).  Other envs
+        # (ContinuousWardEnv) don't use the parameter and raise on
+        # unknown kwargs, so we gate by env name to keep the runner
+        # generic.
+        kwargs: dict[str, object] = {
+            "cell": self.config.cell,
+            "n_envs": n_envs,
+            "alpha_conf": self.config.alpha_conf,
+            "device": str(self.device),
+        }
+        if self.config.horizon is not None:
+            kwargs["horizon"] = self.config.horizon
+        if self.config.env_name in (
+            "tabular-sepsis-v0", "bandit-tabular-sepsis-v0"
+        ):
+            kwargs["confounding_profile"] = self.config.confounding_profile
+        return make_env(self.config.env_name, **kwargs)
 
     def _write_meta(self) -> None:
         # total_frames is the number of batched ticks (each tick = n_envs parallel steps).
