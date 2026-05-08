@@ -1282,6 +1282,22 @@ class BenchmarkRunner:
             # Use the most recently computed gap metric as the sensitivity signal
             # for ConfoundedDQN (the true Δ_φ from the eval env, not latent magnitude).
             delta_tv_val = float(self._last_gap_metrics.get("delta_tv", 0.0))
+            # v21: surface the per-batch behaviour log-prob to algos that
+            # need it (e.g. OfflineBanditIPW).  Source from the buffer's
+            # true logprobs when ``pi_b_known=True``, otherwise from the
+            # fitted propensity model (line 1207).  The runner mediates
+            # per-cell data quality so algos see one consistent field.
+            # Existing algos (DQN, CQL, ConfoundedDQN, ...) ignore this
+            # key.  See ``docs/v21_offline_bandit_algos.md``.
+            behaviour_logprob: torch.Tensor | None = None
+            if self.cell_cfg.pi_b_known and batch_obj.behaviour_logprob is not None:
+                behaviour_logprob = batch_obj.behaviour_logprob
+            elif self._propensity_model is not None:
+                with torch.no_grad():
+                    full_logp = self._propensity_model(batch_obj.obs)
+                    behaviour_logprob = full_logp.gather(
+                        1, batch_obj.action.view(-1, 1).long()
+                    ).squeeze(-1)
             batch: dict[str, object] = {
                 "obs": batch_obj.obs,
                 "action": batch_obj.action,
@@ -1289,6 +1305,7 @@ class BenchmarkRunner:
                 "next_obs": batch_obj.next_obs,
                 "done": batch_obj.done,
                 "delta_tv": delta_tv_val,
+                "behaviour_logprob": behaviour_logprob,
             }
             metrics = self.algo.update(batch)  # type: ignore[arg-type]
             if step in train_ticks:
