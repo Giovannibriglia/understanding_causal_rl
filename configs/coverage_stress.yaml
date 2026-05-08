@@ -17,6 +17,10 @@ algorithms:
   - dqn
   - cql
 behaviours:
+  # v26: stays on the legacy ``reward_aligned`` (U-peeking baseline).
+  # Claim 6's coverage-break mechanism is action-masking + small-sample
+  # (per regimes below), independent of α_conf-driven Z-peeking — see
+  # docs/v26_policy_fix.md and v25.4 Phase 1 audit.
   - reward_aligned
   - uniform
 seeds: [0, 1, 2]
