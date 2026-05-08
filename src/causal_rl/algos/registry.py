@@ -10,6 +10,7 @@ from causal_rl.algos.off_policy.confounded_dqn import ConfoundedDQN
 from causal_rl.algos.off_policy.cql import CQL
 from causal_rl.algos.off_policy.ddpg import DDPG
 from causal_rl.algos.off_policy.dqn import DQN
+from causal_rl.algos.off_policy.offline_bandit_naive import OfflineBanditNaive
 from causal_rl.algos.on_policy.a2c import A2C
 from causal_rl.algos.on_policy.ppo import PPO
 from causal_rl.algos.on_policy.rct import RCT
@@ -63,3 +64,12 @@ register(AlgoSpec("ucb", UCB, "discrete", _ALL_CELLS, "on_policy", default_n_env
 register(AlgoSpec("ucb_minus", UCBMinus, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))
 register(AlgoSpec("ucb_plus", UCBPlus, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))
 register(AlgoSpec("rct", RCT, "discrete", _ALL_CELLS, "on_policy", default_n_envs=8))
+# v21: offline-bandit estimators (per-arm running mean ± IPW) for the
+# off-policy bandit family.  Bandit-default n_envs (8) — these are
+# tiny estimators, no benefit from large batches.
+register(
+    AlgoSpec(
+        "offline_bandit_naive", OfflineBanditNaive, "discrete", _ALL_CELLS,
+        "off_policy", default_n_envs=8,
+    )
+)
