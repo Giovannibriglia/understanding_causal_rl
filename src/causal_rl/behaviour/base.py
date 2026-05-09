@@ -14,6 +14,12 @@ class BiasedExplorer(abc.ABC):
     # spurious A↔R correlation that affects identifiability in pi_b_unknown cells.
     depends_on_u: bool
     bias_strength: float = 1.0
+    # v26: which key in env's ``info`` dict supplies the latent passed to
+    # ``select_action``.  Default "latent_U" matches all pre-v26 policies.
+    # ``RewardAlignedZExplorer`` overrides to "latent_Z" so it peeks at the
+    # reward-driving latent rather than the independent confounder.  See
+    # ``docs/v26_policy_fix.md``.
+    latent_source: str = "latent_U"
 
     def __init__(self, *args: object, bias_strength: float = 1.0, **kwargs: object) -> None:
         del args, kwargs

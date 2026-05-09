@@ -42,8 +42,12 @@ algorithms:
   - offline_bandit_naive
   - offline_bandit_ipw
 behaviours:
+  # v26: ``reward_aligned_z`` is the Z-peeking variant.  The legacy
+  # ``reward_aligned`` peeks at latent_U (independent of Z) and produces
+  # near-uniform Z-conditional sample distributions at α_conf=4 (audited
+  # in v25.2/v25.3 — see docs/v26_policy_fix.md).
   - uniform
-  - reward_aligned
+  - reward_aligned_z
 seeds: [0, 1, 2, 3, 4]
 total_frames: 64000
 n_checkpoints_train: 50

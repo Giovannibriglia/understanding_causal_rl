@@ -95,8 +95,12 @@ def collect_offline_dataset(
             list(forbidden_actions), dtype=torch.long, device=obs.device
         )
     done = torch.zeros((obs.shape[0],), dtype=torch.bool, device=obs.device)
+    # v26: read whichever latent the policy declares it needs.  Default
+    # ``"latent_U"`` matches all pre-v26 policies; ``RewardAlignedZExplorer``
+    # overrides to ``"latent_Z"``.  See ``docs/v26_policy_fix.md``.
+    latent_key = getattr(behaviour_policy, "latent_source", "latent_U")
     while buffer.size < n_transitions:
-        latent = info.get("latent_U")
+        latent = info.get(latent_key)
         action, logprob = behaviour_policy.select_action(
             obs, latent=latent if expose_latent else None
         )
@@ -113,7 +117,11 @@ def collect_offline_dataset(
             action, logprob = _resample_forbidden(action, forbidden_t, n_actions)
         next_obs, reward, terminated, truncated, info = env.step(action)
         done = terminated | truncated
-        latent_logged = info.get("latent_U")
+        # v26: log the latent the policy peeked at (matches
+        # ``latent_source``).  Downstream consumers
+        # (``_compute_extra_metrics`` cond-MI on R given (Z, A) /
+        # backdoor-residual on Z) treat the latent as opaque.
+        latent_logged = info.get(latent_key)
         buffer.add(
             obs=obs,
             action=action,

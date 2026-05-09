@@ -16,8 +16,11 @@ algorithms:
   - bound_cql
   - confounded_dqn
 behaviours:
+  # v26: ``reward_aligned_z`` is the Z-peeking variant; the legacy
+  # ``reward_aligned`` produced near-uniform buffers at α_conf=4
+  # (audits v25.2/v25.3).  See docs/v26_policy_fix.md.
   - uniform
-  - reward_aligned
+  - reward_aligned_z
   - reward_misaligned
   - information
   - curiosity
