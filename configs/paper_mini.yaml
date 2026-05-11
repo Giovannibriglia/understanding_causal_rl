@@ -1,0 +1,46 @@
+# paper_mini: trimmed paper.yaml for v26 sequential validation.
+#
+# Scope:
+#   - 4 cells (full identifiability taxonomy)
+#   - 1 env (tabular-sepsis-v0; continuous-ward dropped to save compute)
+#   - 4 algorithms (discrete-action only: dqn, cql, bound_cql, confounded_dqn)
+#   - 5 behaviours: uniform baseline + reward_aligned_z (v26 fix target)
+#     + 3 diverse-bias behaviours for diagnostic-breadth test
+#   - 10 seeds (paper.yaml default)
+#   - 2 alphas (0.0, 2.0)
+#
+# Nominal: 4 cells x 1 env x 4 algos x 5 behaviours x 10 seeds x 2 alphas = 1600
+# After _BEHAVIOUR_INDEPENDENT dedup: ~1000-1200 expected.
+#
+# Wall time estimate: ~10-15h on CPU/4 workers (extrapolated from paper.yaml's
+# 31h/4w estimate for 2960 runs).
+#
+# Compares with paper_bandit_offpolicy: this is the sequential analogue,
+# validating v26 fix's behaviour on sequential MDPs and testing diagnostic
+# breadth across multiple behaviour-bias mechanisms.
+
+cells: [1, 2, 3, 4]
+envs:
+  - tabular-sepsis-v0
+algorithms:
+  - dqn
+  - cql
+  - bound_cql
+  - confounded_dqn
+behaviours:
+  - uniform
+  - reward_aligned_z       # v26 fix target; Simpson's-paradox confounding
+  - reward_misaligned       # wrong-reward bias
+  - certainty_seeking       # confidence-based bias
+  - novelty_trap            # novelty-based bias
+seeds: [0, 1, 2, 3, 4]
+total_frames: 256000
+n_checkpoints_train: 100
+n_checkpoints_eval: 50
+env_horizons:
+  tabular-sepsis-v0: 20
+offline_transitions: 200000
+offline_updates: 10000
+alpha_conf_sweep: [0.0, 1.0, 2.0]
+n_envs: 256
+eval_perturbations: true
